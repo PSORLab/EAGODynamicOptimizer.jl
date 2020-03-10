@@ -1,0 +1,23 @@
+name = "EAGODynamicOptimizer"
+uuid = "ad561957-6f15-471c-b696-57d249974460"
+authors = ["Matthew Wilhelm <matthew.wilhelm@uconn.edu>"]
+version = "0.1.0"
+
+[deps]
+DocStringExtensions = "ffbed154-4ef7-542d-bbb7-c09d3a79fcae"
+EAGO = "bb8be931-2a91-5aca-9f87-79e1cb69959a"
+MathOptInterface = "b8f27783-ece8-5eb3-8dc8-9495eed66fee"
+McCormick = "53c679d3-6890-5091-8386-c291e8c8aaa1"
+
+[compat]
+DocStringExtensions = "~0.8"
+EAGO = "0.3.2"
+MathOptInterface = "0.8.1, 0.8.2, 0.8.3, 0.8.4, ~0.9"
+McCormick = "~0.1"
+julia = "~0.7, ~1.0, ~1.1, ~1.2, ~1.3"
+
+[extras]
+Test = "8dfed614-e22c-5e08-85e1-65c5234f0b40"
+
+[targets]
+test = ["Test"]
