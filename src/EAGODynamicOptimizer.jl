@@ -1,12 +1,11 @@
 module EAGODynamicOptimizer
 
-using MathOptInterface, DocStringExtensions, EAGO, DynamicBounds, McCormick
-import EAGO: relax_problem!, upper_problem!, preprocess!, postprocess!, cut_condition
-import Base: getindex
+using MathOptInterface, DocStringExtensions, EAGO, DynamicBounds
+import EAGO: preprocess!, postprocess!, lower_problem!,
+             upper_problem!, cut_condition, ExtensionType
 
 const MOI = MathOptInterface
 
-export StateCalc, SupportedScalarFunction, SupportedVectorFunction, relax, bound
-include("functions.jl")
+include("subproblems.jl")
 
 end # module
