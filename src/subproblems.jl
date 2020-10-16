@@ -6,7 +6,7 @@ function presolve_global!(t::DynamicExt, m::EAGO.Optimizer)
 
     # create initial node
     # load initial relaxed problem
-    
+
     branch_variable_count = m._branch_variable_count
 
     m._current_xref             = fill(0.0, branch_variable_count)
