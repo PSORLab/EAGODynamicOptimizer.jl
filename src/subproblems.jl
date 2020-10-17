@@ -85,14 +85,14 @@ function lower_problem!(t::DynamicExt, opt::EAGO.Optimizer)
     # and computes objective bound/relaxation...
     getall!(t.lo, integrator, Bound{Lower}())
     getall!(t.hi, integrator, Bound{Upper}())
-    @__dot__ t.x_intv = Interval(t.lo, t.hi)
+    load_trajectory!(t.x_intv, t.lo, t.hi)
 
     if supports_affine
         getall!(t.cv, integrator, Relaxation{Lower}())
         getall!(t.cc, integrator, Relaxation{Upper}())
         getall!(t.cv_grad, integrator, Subgradient{Lower}())
         getall!(t.cc_grad, integrator, Subgradient{Upper}())
-        @__dot__ t.x_mc = MC{N,NS}(t.cv, t.cc, t.intv, t.cv_grad, t.cc_grad, false)
+        load_trajectory!(t.x_mc, t.cv, t.cc, t.intv, t.cv_grad, t.cc_grad)
         t.obj_mc = t.objective(t.x_mc, t.p_mc)
 
         # add affine relaxation... to opt problem
@@ -121,23 +121,28 @@ end
 
 function upper_problem!(t::DynamicExt, opt::EAGO.Optimizer)
 
-    n = opt._current_node
+    integrate!(t.integator)
+    getall!(t.x_val, integrator, DBB.Value())
+    getall!(t.p_val, integrator, DBB.ParameterValue())
 
-    # TODO: calculate
+    load_trajectory!(t.x_traj, t.x_val)
+    t.obj_val = t.objective(t.x_traj, t.p_val)
 
-    opt._upper_objective_value = upper_problem_value
-    opt._upper_solution = upper_problem_solution
-    opt._upper_feasibility = upper_problem_feasibility
+    opt._upper_objective_value = t.obj_val
+    opt._upper_feasibility = true
+    @__dot__ opt._upper_solution = t.p_val
+
+    return nothing
 end
 
 function EAGO.preprocess!(t::DynamicExt, p::Optimizer)
     p._preprocess_feasibility = true
-    return
+    return nothing
 end
 
 function EAGO.postprocess!(t::DynamicExt, p::Optimizer)
     p._postprocess_feasibility = true
-    return
+    return nothing
 end
 
 EAGO.cut_condition(t::DynamicExt, p::Optimizer) = true
