@@ -32,7 +32,7 @@ function setindex!(d::Trajectory{T}, val::T, i::Int64, j::Int64) where T<:Number
 end
 
 function extract_static(::Type{Val{N}}, grad::Vector{Matrix{Float64}}, i::Int64, j::Int64)
-    return SVector{N,Float64}()
+    return SVector{N,Float64}(ntuple(k -> grad[k][j,i], Val(N)))
 end
 
 function load_trajectory!(d::Trajectory{MC{N,T}}, cv::Matrix{Float64}, cc::Matrix{Float64},
