@@ -1,6 +1,6 @@
 module EAGODynamicOptimizer
 
-using MathOptInterface, DocStringExtensions, EAGO, DynamicBounds
+using MathOptInterface, DocStringExtensions, EAGO, DynamicBoundsBase
 import EAGO: preprocess!, postprocess!, lower_problem!,
              upper_problem!, cut_condition, ExtensionType
 

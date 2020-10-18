@@ -107,7 +107,7 @@ function lower_problem!(t::DynamicExt, opt::EAGO.Optimizer)
             for i = 1:m._working_problem._variable_count
                 opt._lower_solution[i] = MOI.get(relaxed_optimizer, MOI.VariablePrimal(), opt._relaxed_variable_index[i])
             end
-            opt._lower_feasibility = supports_affine ? : true
+            #opt._lower_feasibility = supports_affine ? : true
         else
         end
     else
