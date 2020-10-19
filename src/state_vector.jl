@@ -31,7 +31,7 @@ function setindex!(d::Trajectory{T}, val::T, i::Int64, j::Int64) where T<:Number
     return nothing
 end
 
-function extract_static(::Type{Val{N}}, grad::Vector{Matrix{Float64}}, i::Int64, j::Int64)
+function extract_static(::Type{Val{N}}, grad::Vector{Matrix{Float64}}, i::Int64, j::Int64) where N
     return SVector{N,Float64}(ntuple(k -> grad[k][j,i], Val(N)))
 end
 
@@ -42,7 +42,7 @@ function load_trajectory!(d::Trajectory{MC{N,T}}, cv::Matrix{Float64}, cc::Matri
         for j = 1:d.nx
             cvg = extract_static(Val{N}, cc_grad, i, j)
             ccg = extract_static(Val{N}, cc_grad, i, j)
-            d.v[i][j] = MC{N,T}(cv[j,i], cc[j,i], Interval(xL[j,i], xU[j,i])), cvg, ccg, false)
+            d.v[i][j] = MC{N,T}(cv[j,i], cc[j,i], Interval(xL[j,i], xU[j,i]), cvg, ccg, false)
         end
     end
     return nothing

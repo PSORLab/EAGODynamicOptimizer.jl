@@ -2,7 +2,7 @@ struct DynamicExt <: EAGO.ExtensionType
     integrator
 end
 
-function presolve_global!(t::DynamicExt, m::EAGO.Optimizer)
+function EAGO.presolve_global!(t::DynamicExt, m::EAGO.Optimizer)
 
     # create initial node
     # load initial relaxed problem
@@ -57,7 +57,7 @@ function supports_affine_relaxation(integrator)
     supports(integrator, Subgradient{Upper}())
 end
 
-function lower_problem!(t::DynamicExt, opt::EAGO.Optimizer)
+function EAGO.lower_problem!(t::DynamicExt, opt::EAGO.Optimizer)
 
     integrator = t.integrator
     np = t.np
@@ -119,7 +119,7 @@ function lower_problem!(t::DynamicExt, opt::EAGO.Optimizer)
     return nothing
 end
 
-function upper_problem!(t::DynamicExt, opt::EAGO.Optimizer)
+function EAGO.upper_problem!(t::DynamicExt, opt::EAGO.Optimizer)
 
     integrate!(t.integator)
     getall!(t.x_val, integrator, DBB.Value())

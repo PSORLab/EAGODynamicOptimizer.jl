@@ -1,4 +1,4 @@
-using JuMP, EAGODynamicOptimizer, DynamicBoundsBase
+using JuMP, EAGODynamicOptimizer, DynamicBoundsBase, DynamicBoundspODEsIneq
 
 # Defines pODEs problem
 x0(p) = [1.2; 1.1]
@@ -14,7 +14,9 @@ pode_problem = ODERelaxProb(f!, tspan, x0, pL, pU)
 set!(pode_problem, SupportSet([i for i in 0.0:0.01:2.0]))
 
 # Initializes the Dynamic Extension
-dynamic_ext = DynamicExt(DiscretizeRelax(pode_problem))
+dynamic_ext = DynamicExt(DifferentialInequality(pode_problem,
+                                                calculate_relax = false,
+                                                calculate_subgradient = false))
 
 # Adds objective function
 function obj(x, p)
