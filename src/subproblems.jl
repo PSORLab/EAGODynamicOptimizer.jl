@@ -11,13 +11,16 @@ mutable struct LowerStorage{T}
     x_set_traj::Trajectory{T}
     obj_set::T
 end
+function LowerStorage{T}() where T
+    LowerStorage{T}(zeros(T,1), zeros(T,1,1), Trajectory{T}(), zero(T))
+end
 
 struct SupportedObjective
     f
     support::Vector{Float64}
 end
 
-mutable struct DynamicExt{T,S} <: EAGO.ExtensionType
+mutable struct DynamicExt{T} <: EAGO.ExtensionType
     integrator
     obj::Union{SupportedObjective,Nothing}
     np::Int
@@ -48,16 +51,16 @@ function DynamicExt(integrator, ::T) where T
     cv_grad = Matrix{Float64}[]
     cc_grad = Matrix{Float64}[]
     lower_storage = LowerStorage{T}()
-    DynamicExt(obj, np, nx, p_val, x_val, obj_val, lo, hi,
+    DynamicExt{T}(integrator, obj, np, nx, p_val, x_val, obj_val, lo, hi,
                cv, cc, cv_grad, cc_grad, lower_storage)
 end
 
 function DynamicExt(integrator)
     if supports_affine_relaxation(integrator)
         np = DBB.get(integrator, DBB.ParameterNumber())
-        return DynamicExt(integrator, MC{np,NS})
+        return DynamicExt(integrator, zero(MC{np,NS}))
     end
-    DynamicExt(integrator, Interval{Float64})
+    DynamicExt(integrator, zero(Interval{Float64}))
 end
 
 function add_supported_objective!(t::Model, obj)
