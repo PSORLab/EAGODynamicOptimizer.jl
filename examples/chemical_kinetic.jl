@@ -18,11 +18,13 @@ dynamic_ext = DynamicExt(DifferentialInequality(pode_problem,
                                                 calculate_relax = false,
                                                 calculate_subgradient = false))
 
+# Creates Model with dynamic extension
+m, p = EAGODynamicModel(dynamic_ext)
+
 # Adds objective function
 function obj(x, p)
     x(1, 0.01)*p[1] + x(2, 0.05)
 end
-add_supported_objective!(dynamic_ext, obj)
+add_supported_objective!(m, obj)
 
-m, p = EAGODynamicModel(dynamic_ext)
 obj_value = objective_value(m)
