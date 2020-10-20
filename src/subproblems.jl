@@ -73,6 +73,8 @@ end
 function EAGO.presolve_global!(t::DynamicExt, m::EAGO.Optimizer)
 
     # create initial node
+    EAGO.create_initial_node!(m)
+
     # load initial relaxed problem
 
     branch_variable_count = m._branch_variable_count
@@ -119,6 +121,7 @@ function EAGO.presolve_global!(t::DynamicExt, m::EAGO.Optimizer)
 end
 
 function EAGO.lower_problem!(t::DynamicExt, opt::EAGO.Optimizer)
+    @show "ran lower bound"
 
     integrator = t.integrator
     np = t.np
@@ -133,10 +136,10 @@ function EAGO.lower_problem!(t::DynamicExt, opt::EAGO.Optimizer)
 
     # set reference point to evaluate relaxation
     if supports_affine
-       @__dot__ m._current_xref = 0.5*(lvbs + uvbs)
-       setall!(integrator, ParameterValue(), m._current_xref)
+       @__dot__ t._current_xref = 0.5*(lvbs + uvbs)
+       setall!(integrator, ParameterValue(), t._current_xref)
        @__dot__ t.p_intv = Interval(lvbs, uvbs)
-       @__dot__ t.p_mc = MC{N,NS}(m._current_xref, t.p_intv, 1:t.np)
+       @__dot__ t.p_mc = MC{N,NS}(t._current_xref, t.p_intv, 1:t.np)
    end
 
     # relaxes pODE
@@ -182,6 +185,8 @@ end
 
 function EAGO.upper_problem!(t::DynamicExt, opt::EAGO.Optimizer)
 
+    @show "ran upper bound"
+
     # get all at particular points???
     integrate!(t.integator)
     getall!(t.p_val, integrator, DBB.ParameterValue())
@@ -201,6 +206,8 @@ function EAGO.upper_problem!(t::DynamicExt, opt::EAGO.Optimizer)
 end
 
 function EAGO.preprocess!(t::DynamicExt, p::Optimizer)
+    @show "ran preprocess"
+
     p._preprocess_feasibility = true
     return nothing
 end
