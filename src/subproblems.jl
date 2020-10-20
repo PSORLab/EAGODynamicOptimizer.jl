@@ -91,7 +91,7 @@ function EAGO.presolve_global!(t::DynamicExt, m::EAGO.Optimizer)
     m._cut_solution        = zeros(Float64, m._working_problem._variable_count)
     m._continuous_solution = zeros(Float64, m._working_problem._variable_count)
     m._upper_solution      = zeros(Float64, m._working_problem._variable_count)
-    m._upper_variables     = fill(VI(-1), m._working_problem._variable_count)
+    m._upper_variables     = fill(MOI.VariableIndex(-1), m._working_problem._variable_count)
 
     # add storage for fbbt
     m._lower_fbbt_buffer   = zeros(Float64, m._working_problem._variable_count)
@@ -110,8 +110,8 @@ function EAGO.presolve_global!(t::DynamicExt, m::EAGO.Optimizer)
 
     # add storage for objective cut
     wp = m._working_problem
-    obj_type = wp._objective_type # NEED THIS???
-    wp._objective_saf.terms = # TODO: SAF()
+    obj_type = EAGO.SCALAR_AFFINE
+    wp._objective_saf.terms = fill(MOI.ScalarAffineTerm{Float64}(0.0, MOI.VariableIndex(1)), branch_variable_count)
 
     m._presolve_time = time() - m._parse_time
 
