@@ -89,12 +89,14 @@ function EAGO.presolve_global!(t::DynamicExt, m::EAGO.Optimizer)
                                                    m._branch_variable_count)
 
     # set up for extension
-    np =  m.ext_type.np
+    np = m.ext_type.np
+    nx = m.ext_type.nx
+    nt = 1
     m.ext_type.p_intv = zeros(Interval{Float64}, np)
     if supports_affine_relaxation(m.ext_type.integrator)
-        m.ext_type.lower_storage = LowerStorage{MC{np, NS}}()
+        m.ext_type = DynamicExt(m.ext_type.integrator, np, nx, nt, zero(MC{np, NS}))
     else
-        m.ext_type.lower_storage = LowerStorage{Interval{Float64}}()
+        m.ext_type = DynamicExt(m.ext_type.integrator, np, nx, nt, zero(Interval{Float64}))
     end
 
     m._presolve_time = time() - m._parse_time
@@ -121,7 +123,7 @@ function EAGO.lower_problem!(t::DynamicExt, opt::EAGO.Optimizer)
        @__dot__ opt._current_xref = 0.5*(lvbs + uvbs)
        setall!(integrator, ParameterValue(), opt._current_xref)
        @__dot__ t.p_intv = Interval(lvbs, uvbs)
-       @__dot__ t.lower_storage.p_set = MC{N,NS}(t._current_xref, t.p_set, 1:np)
+       @__dot__ t.lower_storage.p_set = MC{np,NS}(t._current_xref, t.p_set, 1:np)
    end
 
     # relaxes pODE
