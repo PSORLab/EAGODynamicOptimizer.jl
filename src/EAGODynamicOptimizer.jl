@@ -9,11 +9,11 @@ import Base: getindex, setindex!
 const MOI = MathOptInterface
 const DBB = DynamicBoundsBase
 
-export DynamicExt, EAGODynamicModel, supported_objective!
+export DynamicExt, EAGODynamicModel, add_supported_objective!
 
-include("subproblems.jl")
-include("model.jl")
 include("state_vector.jl")
 include("subproblems.jl")
+include("model.jl")
+
 
 end # module

@@ -1,5 +1,73 @@
-struct DynamicExt <: EAGO.ExtensionType
+function supports_affine_relaxation(integrator)
+    supports(integrator, Relaxation{Lower}()) &&
+    supports(integrator, Relaxation{Upper}()) &&
+    supports(integrator, Subgradient{Lower}()) &&
+    supports(integrator, Subgradient{Upper}())
+end
+
+mutable struct LowerStorage{T}
+    p_set::Vector{T}
+    x_set::Matrix{T}
+    x_set_traj::Trajectory{T}
+    obj_set::T
+end
+
+struct SupportedObjective
+    f
+    support::Vector{Float64}
+end
+
+mutable struct DynamicExt{T,S} <: EAGO.ExtensionType
     integrator
+    obj::Union{SupportedObjective,Nothing}
+    np::Int
+    nx::Int
+    p_val::Vector{Float64}
+    x_val::Vector{Float64}
+    obj_val::Float64
+    lo::Matrix{Float64}
+    hi::Matrix{Float64}
+    cv::Matrix{Float64}
+    cc::Matrix{Float64}
+    cv_grad::Vector{Matrix{Float64}}
+    cc_grad::Vector{Matrix{Float64}}
+    lower_storage::LowerStorage{T}
+end
+
+function DynamicExt(integrator, ::T) where T
+    obj = nothing
+    np = 0
+    nx = 0
+    p_val = zeros(1)
+    x_val = zeros(1)
+    obj_val = 0.0
+    lo = zeros(1,1)
+    hi = zeros(1,1)
+    cv = zeros(1,1)
+    cc = zeros(1,1)
+    cv_grad = Matrix{Float64}[]
+    cc_grad = Matrix{Float64}[]
+    lower_storage = LowerStorage{T}()
+    DynamicExt(obj, np, nx, p_val, x_val, obj_val, lo, hi,
+               cv, cc, cv_grad, cc_grad, lower_storage)
+end
+
+function DynamicExt(integrator)
+    if supports_affine_relaxation(integrator)
+        np = DBB.get(integrator, DBB.ParameterNumber())
+        return DynamicExt(integrator, MC{np,NS})
+    end
+    DynamicExt(integrator, Interval{Float64})
+end
+
+function add_supported_objective!(t::Model, obj)
+    inner_optimizer = t.optimizer.model.optimizer
+    if MOI.get(inner_optimizer, MOI.SolverName()) === "EAGO: Easy Advanced Global Optimization"
+        error("EAGO.Optimizer must be used in model")
+    end
+    ext_type = inner_optimizer.ext_type
+    ext_type.obj = obj
+    return
 end
 
 function EAGO.presolve_global!(t::DynamicExt, m::EAGO.Optimizer)
@@ -47,14 +115,7 @@ function EAGO.presolve_global!(t::DynamicExt, m::EAGO.Optimizer)
 
     m._presolve_time = time() - m._parse_time
 
-    return
-end
-
-function supports_affine_relaxation(integrator)
-    supports(integrator, Relaxation{Lower}()) &&
-    supports(integrator, Relaxation{Upper}()) &&
-    supports(integrator, Subgradient{Lower}()) &&
-    supports(integrator, Subgradient{Upper}())
+    return nothing
 end
 
 function EAGO.lower_problem!(t::DynamicExt, opt::EAGO.Optimizer)
@@ -75,7 +136,7 @@ function EAGO.lower_problem!(t::DynamicExt, opt::EAGO.Optimizer)
        @__dot__ m._current_xref = 0.5*(lvbs + uvbs)
        setall!(integrator, ParameterValue(), m._current_xref)
        @__dot__ t.p_intv = Interval(lvbs, uvbs)
-       @__dot__ t.p_mc = MC{N,NS}(m._current_xref, t.p_intv, 1:np)
+       @__dot__ t.p_mc = MC{N,NS}(m._current_xref, t.p_intv, 1:t.np)
    end
 
     # relaxes pODE
@@ -92,8 +153,8 @@ function EAGO.lower_problem!(t::DynamicExt, opt::EAGO.Optimizer)
         getall!(t.cc, integrator, Relaxation{Upper}())
         getall!(t.cv_grad, integrator, Subgradient{Lower}())
         getall!(t.cc_grad, integrator, Subgradient{Upper}())
-        load_trajectory!(t.x_mc, t.cv, t.cc, t.intv, t.cv_grad, t.cc_grad)
-        t.obj_mc = t.objective(t.x_mc, t.p_mc)
+        load_trajectory!(t.x_set, t.cv, t.cc, t.intv, t.cv_grad, t.cc_grad)
+        t.obj_set = t.objective(t.x_set, t.p_set)
 
         # add affine relaxation... to opt problem
 
@@ -121,12 +182,16 @@ end
 
 function EAGO.upper_problem!(t::DynamicExt, opt::EAGO.Optimizer)
 
+    # get all at particular points???
     integrate!(t.integator)
-    getall!(t.x_val, integrator, DBB.Value())
     getall!(t.p_val, integrator, DBB.ParameterValue())
+    for i = 1:t.nt
+        tval = t.obj.support[i]
+        t.x_val[i] .= get(integrator, DBB.Value(TimeIndex(tval)))
+    end
 
     load_trajectory!(t.x_traj, t.x_val)
-    t.obj_val = t.objective(t.x_traj, t.p_val)
+    t.obj_val = t.obj.f(t.x_traj, t.p_val)
 
     opt._upper_objective_value = t.obj_val
     opt._upper_feasibility = true
