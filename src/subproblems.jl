@@ -27,7 +27,7 @@ mutable struct DynamicExt{T} <: EAGO.ExtensionType
     nx::Int
     p_val::Vector{Float64}
     p_intv::Vector{Interval{Float64}}
-    x_val::Vector{Float64}
+    x_val::Matrix{Float64}
     obj_val::Float64
     lo::Matrix{Float64}
     hi::Matrix{Float64}
@@ -38,20 +38,24 @@ mutable struct DynamicExt{T} <: EAGO.ExtensionType
     lower_storage::LowerStorage{T}
 end
 
-function DynamicExt(integrator, ::T) where T
+function DynamicExt(integrator, np::Int, nx::Int, nt::Int, ::T) where T
     obj = nothing
     np = 0
     nx = 0
-    p_val = zeros(1)
-    p_intv = zeros(Interval{Float64}, 1)
-    x_val = zeros(1)
+    p_val = zeros(np)
+    p_intv = zeros(Interval{Float64}, np)
+    x_val = zeros(nx, nt)
     obj_val = 0.0
-    lo = zeros(1,1)
-    hi = zeros(1,1)
-    cv = zeros(1,1)
-    cc = zeros(1,1)
+    lo = zeros(nx, nt)
+    hi = zeros(nx, nt)
+    cv = zeros(nx, nt)
+    cc = zeros(nx, nt)
     cv_grad = Matrix{Float64}[]
     cc_grad = Matrix{Float64}[]
+    for i = 1:np
+        push!(cv_grad, zeros(nx, nt))
+        push!(cc_grad, zeros(nx, nt))
+    end
     lower_storage = LowerStorage{T}()
     DynamicExt{T}(integrator, obj, np, nx, p_val, p_intv, x_val,
                   obj_val, lo, hi, cv, cc, cv_grad, cc_grad,
@@ -61,9 +65,11 @@ end
 function DynamicExt(integrator)
     if supports_affine_relaxation(integrator)
         np = DBB.get(integrator, DBB.ParameterNumber())
-        return DynamicExt(integrator, zero(MC{np,NS}))
+        nx = DBB.get(integrator, DBB.StateNumber())
+        nt = DBB.get(integrator, DBB.SupportNumber())
+        return DynamicExt(integrator, np, nx, nt, zero(MC{np,NS}))
     end
-    return DynamicExt(integrator, zero(Interval{Float64}))
+    return DynamicExt(integrator, np, nx, nt, zero(Interval{Float64}))
 end
 
 function add_supported_objective!(t::Model, obj)
@@ -83,7 +89,13 @@ function EAGO.presolve_global!(t::DynamicExt, m::EAGO.Optimizer)
                                                    m._branch_variable_count)
 
     # set up for extension
-    m.ext_type.p_intv = zeros(Interval{Float64}, m.ext_type.np)
+    np =  m.ext_type.np
+    m.ext_type.p_intv = zeros(Interval{Float64}, np)
+    if supports_affine_relaxation(m.ext_type.integrator)
+        m.ext_type.lower_storage = LowerStorage{MC{np, NS}}()
+    else
+        m.ext_type.lower_storage = LowerStorage{Interval{Float64}}()
+    end
 
     m._presolve_time = time() - m._parse_time
 
@@ -109,7 +121,7 @@ function EAGO.lower_problem!(t::DynamicExt, opt::EAGO.Optimizer)
        @__dot__ opt._current_xref = 0.5*(lvbs + uvbs)
        setall!(integrator, ParameterValue(), opt._current_xref)
        @__dot__ t.p_intv = Interval(lvbs, uvbs)
-       @__dot__ t.p_mc = MC{N,NS}(t._current_xref, t.p_intv, 1:np)
+       @__dot__ t.lower_storage.p_set = MC{N,NS}(t._current_xref, t.p_set, 1:np)
    end
 
     # relaxes pODE

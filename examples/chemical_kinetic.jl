@@ -28,12 +28,14 @@ dynamic_ext = DynamicExt(DiscretizeRelax(pode_problem,
                                          step_limit = steps, relax = false))
 
 # Creates Model with dynamic extension
-m, p = EAGODynamicModel(dynamic_ext)
+m, y = EAGODynamicModel(dynamic_ext, "verbosity" => 4)
 
 # Adds objective function
 function obj(x, p)
     x(1, 0.01)*p[1] + x(2, 0.05)
 end
 add_supported_objective!(m, obj)
+
+optimize!(m)
 
 obj_value = objective_value(m)
