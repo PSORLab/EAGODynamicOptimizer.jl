@@ -15,14 +15,14 @@ function LowerStorage{T}() where T
     LowerStorage{T}(zeros(T,1), zeros(T,1,1), Trajectory{T}(), zero(T))
 end
 
-struct SupportedObjective
+struct SupportedFunction
     f
     support::Vector{Float64}
 end
 
 mutable struct DynamicExt{T} <: EAGO.ExtensionType
     integrator
-    obj::Union{SupportedObjective,Nothing}
+    obj::Union{SupportedFunction,Nothing}
     np::Int
     nx::Int
     p_val::Vector{Float64}
@@ -60,16 +60,13 @@ function DynamicExt(integrator)
         np = DBB.get(integrator, DBB.ParameterNumber())
         return DynamicExt(integrator, zero(MC{np,NS}))
     end
-    DynamicExt(integrator, zero(Interval{Float64}))
+    return DynamicExt(integrator, zero(Interval{Float64}))
 end
 
 function add_supported_objective!(t::Model, obj)
-    inner_optimizer = t.optimizer.model.optimizer
-    if MOI.get(inner_optimizer, MOI.SolverName()) === "EAGO: Easy Advanced Global Optimization"
-        error("EAGO.Optimizer must be used in model")
-    end
-    ext_type = inner_optimizer.ext_type
-    ext_type.obj = obj
+    ext_type = get_optimizer_attribute(t, "ext_type")
+    ext_type.obj = SupportedFunction(obj, Float64[])
+    set_optimizer_attribute(t, "ext_type", ext_type)
     return
 end
 
