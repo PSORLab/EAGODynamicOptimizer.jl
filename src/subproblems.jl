@@ -26,6 +26,7 @@ mutable struct DynamicExt{T} <: EAGO.ExtensionType
     np::Int
     nx::Int
     p_val::Vector{Float64}
+    p_intv::Vector{Interval{Float64}}
     x_val::Vector{Float64}
     obj_val::Float64
     lo::Matrix{Float64}
@@ -42,6 +43,7 @@ function DynamicExt(integrator, ::T) where T
     np = 0
     nx = 0
     p_val = zeros(1)
+    p_intv = zeros(Interval{Float64}, 1)
     x_val = zeros(1)
     obj_val = 0.0
     lo = zeros(1,1)
@@ -51,8 +53,9 @@ function DynamicExt(integrator, ::T) where T
     cv_grad = Matrix{Float64}[]
     cc_grad = Matrix{Float64}[]
     lower_storage = LowerStorage{T}()
-    DynamicExt{T}(integrator, obj, np, nx, p_val, x_val, obj_val, lo, hi,
-               cv, cc, cv_grad, cc_grad, lower_storage)
+    DynamicExt{T}(integrator, obj, np, nx, p_val, p_intv, x_val,
+                  obj_val, lo, hi, cv, cc, cv_grad, cc_grad,
+                  lower_storage)
 end
 
 function DynamicExt(integrator)
@@ -72,48 +75,15 @@ end
 
 function EAGO.presolve_global!(t::DynamicExt, m::EAGO.Optimizer)
 
-    # create initial node
-    EAGO.create_initial_node!(m)
-
-    # load initial relaxed problem
-
-    branch_variable_count = m._branch_variable_count
-
-    m._current_xref             = fill(0.0, branch_variable_count)
-    m._candidate_xref           = fill(0.0, branch_variable_count)
-    m._current_objective_xref   = fill(0.0, branch_variable_count)
-    m._prior_objective_xref     = fill(0.0, branch_variable_count)
-    m._lower_lvd                = fill(0.0, branch_variable_count)
-    m._lower_uvd                = fill(0.0, branch_variable_count)
-
-    # populate in full space until local MOI nlp solves support constraint deletion
-    # uses input model for local nlp solves... may adjust this if a convincing reason
-    # to use a reformulated upper problem presents itself
-    m._lower_solution      = zeros(Float64, m._working_problem._variable_count)
-    m._cut_solution        = zeros(Float64, m._working_problem._variable_count)
-    m._continuous_solution = zeros(Float64, m._working_problem._variable_count)
-    m._upper_solution      = zeros(Float64, m._working_problem._variable_count)
-    m._upper_variables     = fill(MOI.VariableIndex(-1), m._working_problem._variable_count)
-
-    # add storage for fbbt
-    m._lower_fbbt_buffer   = zeros(Float64, m._working_problem._variable_count)
-    m._upper_fbbt_buffer   = zeros(Float64, m._working_problem._variable_count)
-
-    # add storage for obbt ( perform obbt on all relaxed variables, potentially)
-    m._obbt_working_lower_index = fill(false, branch_variable_count)
-    m._obbt_working_upper_index = fill(false, branch_variable_count)
-    m._old_low_index            = fill(false, branch_variable_count)
-    m._old_upp_index            = fill(false, branch_variable_count)
-    m._new_low_index            = fill(false, branch_variable_count)
-    m._new_upp_index            = fill(false, branch_variable_count)
-    m._lower_indx_diff          = fill(false, branch_variable_count)
-    m._upper_indx_diff          = fill(false, branch_variable_count)
-    m._obbt_variable_count      = branch_variable_count
+    EAGO.presolve_global!(EAGO.DefaultExt(), m)
 
     # add storage for objective cut
-    wp = m._working_problem
-    obj_type = EAGO.SCALAR_AFFINE
-    wp._objective_saf.terms = fill(MOI.ScalarAffineTerm{Float64}(0.0, MOI.VariableIndex(1)), branch_variable_count)
+    m._working_problem._objective_saf.terms = fill(MOI.ScalarAffineTerm{Float64}(0.0,
+                                                   MOI.VariableIndex(1)),
+                                                   m._branch_variable_count)
+
+    # set up for extension
+    m.ext_type.p_intv = zeros(Interval{Float64}, m.ext_type.np)
 
     m._presolve_time = time() - m._parse_time
 
@@ -136,10 +106,10 @@ function EAGO.lower_problem!(t::DynamicExt, opt::EAGO.Optimizer)
 
     # set reference point to evaluate relaxation
     if supports_affine
-       @__dot__ t._current_xref = 0.5*(lvbs + uvbs)
-       setall!(integrator, ParameterValue(), t._current_xref)
+       @__dot__ opt._current_xref = 0.5*(lvbs + uvbs)
+       setall!(integrator, ParameterValue(), opt._current_xref)
        @__dot__ t.p_intv = Interval(lvbs, uvbs)
-       @__dot__ t.p_mc = MC{N,NS}(t._current_xref, t.p_intv, 1:t.np)
+       @__dot__ t.p_mc = MC{N,NS}(t._current_xref, t.p_intv, 1:np)
    end
 
     # relaxes pODE
@@ -176,7 +146,7 @@ function EAGO.lower_problem!(t::DynamicExt, opt::EAGO.Optimizer)
         end
     else
         opt._lower_objective_value = t.obj_intv.lo
-        opt._lower_solution = m._current_xref
+        opt._lower_solution = opt._current_xref
         opt._lower_feasibility = true
     end
 
