@@ -15,18 +15,17 @@ pode_problem = ODERelaxProb(f!, tspan, x0, pL, pU)
 set!(pode_problem, SupportSet([i for i in 0.0:0.01:2.0]))
 
 # Initializes the Dynamic Extension
-#=
 dynamic_ext = DynamicExt(DifferentialInequality(pode_problem,
                                                 calculate_relax = false,
                                                 calculate_subgradient = false))
-=#
 
+#=
 steps = 100
 dynamic_ext = DynamicExt(DiscretizeRelax(pode_problem,
                                          DynamicBoundspODEsDiscrete.LohnerContractor{7}(),
                                          repeat_limit = 1, skip_step2 = false,
                                          step_limit = steps, relax = false))
-
+=#
 # Creates Model with dynamic extension
 m, y = EAGODynamicModel(dynamic_ext, "verbosity" => 4)
 

@@ -29,6 +29,7 @@ mutable struct DynamicExt{T} <: EAGO.ExtensionType
     p_val::Vector{Float64}
     p_intv::Vector{Interval{Float64}}
     x_val::Vector{Vector{Float64}}
+    x_intv::Vector{Vector{Interval{Float64}}}
     obj_val::Float64
     lo::Vector{Vector{Float64}}
     hi::Vector{Vector{Float64}}
@@ -45,12 +46,14 @@ function DynamicExt(integrator, np::Int, nx::Int, nt::Int, ::T) where T
     p_intv = zeros(Interval{Float64}, np)
     obj_val = 0.0
     x_val = Vector{Float64}[]
+    x_intv = Vector{Interval{Float64}}[]
     lo = Vector{Float64}[]
     hi = Vector{Float64}[]
     cv = Vector{Float64}[]
     cc = Vector{Float64}[]
     for i = 1:nt
         push!(x_val, zeros(nx))
+        push!(x_intv, zeros(Interval{Float64},nx))
         push!(lo, zeros(nx))
         push!(hi, zeros(nx))
         push!(cv, zeros(nx))
@@ -64,7 +67,7 @@ function DynamicExt(integrator, np::Int, nx::Int, nt::Int, ::T) where T
     end
     lower_storage = LowerStorage{T}()
     DynamicExt{T}(integrator, obj, np, nx, nt, p_val, p_intv, x_val,
-                  obj_val, lo, hi, cv, cc, cv_grad, cc_grad,
+                  x_intv, obj_val, lo, hi, cv, cc, cv_grad, cc_grad,
                   lower_storage)
 end
 
@@ -83,6 +86,22 @@ function add_supported_objective!(t::Model, obj)
     ext_type.obj = SupportedFunction(obj, Float64[])
     set_optimizer_attribute(t, "ext_type", ext_type)
     return
+end
+
+function load_check_support!(t::DynamicExt, m::EAGO.Optimizer)
+    support_set = get(m.ext_type.integrator, DBB.SupportSet())
+    f = m.ext_type.obj.f
+    m.ext_type.obj = SupportedFunction(f, support_set.s)
+    nothing
+end
+
+function load_intervals!(d::Vector{Vector{Interval{Float64}}},
+                          xL::Vector{Vector{Float64}},
+                          xU::Vector{Vector{Float64}}, nt::Int)
+    for i = 1:nt
+        @__dot__ d[i] = Interval(xL[i], xU[i])
+    end
+    return nothing
 end
 
 function EAGO.presolve_global!(t::DynamicExt, m::EAGO.Optimizer)
@@ -107,7 +126,7 @@ function EAGO.presolve_global!(t::DynamicExt, m::EAGO.Optimizer)
         m.ext_type = DynamicExt(m.ext_type.integrator, np, nx, nt, zero(Interval{Float64}))
         m.ext_type.obj = last_obj
     end
-    #TODO LOAD SUPPORT SET...
+    load_check_support!(t, m)
 
     m._presolve_time = time() - m._parse_time
 
@@ -146,18 +165,18 @@ function EAGO.lower_problem!(t::DynamicExt, opt::EAGO.Optimizer)
     # and computes objective bound/relaxation...
     for i = 1:nt
         support_time = t.obj.support[i]
-        get!(t.lo[i], integrator, Bound{Lower}(support_time))
-        get!(t.hi[i], integrator, Bound{Upper}(support_time))
+        get(t.lo[i], integrator, Bound{Lower}(support_time))
+        get(t.hi[i], integrator, Bound{Upper}(support_time))
+        if supports_affine
+            get(t.cv[i], integrator, Relaxation{Lower}(support_time))
+            get(t.cc[i], integrator, Relaxation{Upper}(support_time))
+            get(t.cv_grad[i], integrator, Subgradient{Lower}(support_time))
+            get(t.cc_grad[i], integrator, Subgradient{Upper}(support_time))
+        end
     end
-    load_trajectory!(t.x_intv, t.lo, t.hi)
+    load_intervals!(t.x_intv, t.lo, t.hi, nt)
 
     if supports_affine
-        for i = 1:nt
-            get!(t.cv[i], integrator, Relaxation{Lower}(support_time))
-            get!(t.cc[i], integrator, Relaxation{Upper}(support_time))
-            get!(t.cv_grad[i], integrator, Subgradient{Lower}(support_time))
-            get!(t.cc_grad[i], integrator, Subgradient{Upper}(support_time))
-        end
         load_trajectory!(t.x_set, t.cv, t.cc, t.intv, t.cv_grad, t.cc_grad)
         t.obj_set = t.objective(t.x_set, t.p_set)
 

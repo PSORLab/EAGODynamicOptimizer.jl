@@ -31,31 +31,22 @@ function setindex!(d::Trajectory{T}, val::T, i::Int64, j::Int64) where T<:Number
     return nothing
 end
 
-function extract_static(::Type{Val{N}}, grad::Vector{Matrix{Float64}}, i::Int64, j::Int64) where N
-    return SVector{N,Float64}(ntuple(k -> grad[k][j,i], Val(N)))
+function extract_static_val(::Type{Val{N}}, grad::Vector{Matrix{Float64}}, i::Int64, j::Int64) where N
+    return SVector{N,Float64}(ntuple(k -> grad[k][i,j], Val(N)))
+end
+
+function extract_static_vector(::Type{Val{N}}, vnx::Val{NX}, grad::Vector{Matrix{Float64}}, i::Int64) where {N,NX}
+    return ntuple(k -> extract_static_val(Val{N}(), grad, i, k), vnx)
 end
 
 function load_trajectory!(d::Trajectory{MC{N,T}}, cv::Vector{Vector{Float64}},
                           cc::Vector{Vector{Float64}}, l::Vector{Vector{Float64}},
                           u::Vector{Vector{Float64}}, cv_grad::Vector{Matrix{Float64}},
-                          cc_grad::Vector{Matrix{Float64}}) where {N,T<:RelaxTag}
+                          cc_grad::Vector{Matrix{Float64}}) where {N, T<:RelaxTag}
     for i = 1:d.nt
-        for j = 1:d.nx
-            d.cvg[i][j] = extract_static(Val{N}, cc_grad, i, j)
-            d.ccg[i][j] = extract_static(Val{N}, cc_grad, i, j)
-        end
-        @__dot__ d.v[i] = MC{N,T}(cv[i], cc[i], Interval(xL[i], xU[i]), cvg[i], ccg[i], false)
-    end
-    return nothing
-end
-
-function load_trajectory!(d::Trajectory{Interval{Float64}},
-                          xL::Vector{Vector{Float64}},
-                          xU::Vector{Vector{Float64}})
-    for i = 1:d.nt
-        for j = 1:d.nx
-            d.v[i][j] = Interval(xL[j,i], xU[j,i])
-        end
+        cvg = extract_static_vector(Val{N}(), Val{d.nx}(), cv_grad, i)
+        ccg = extract_static_vector(Val{N}(), Val{d.nx}(), cc_grad, i)
+        @__dot__ d.v[i] = MC{N,T}(cv[i], cc[i], Interval(xL[i], xU[i]), d.cvg, ccg, false)
     end
     return nothing
 end
