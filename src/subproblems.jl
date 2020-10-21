@@ -94,10 +94,8 @@ function load_check_support!(t::DynamicExt, m::EAGO.Optimizer)
     f = m.ext_type.obj.f
     m.ext_type.obj = SupportedFunction(f, support_set.s)
     for (i,tval) in enumerate(support_set.s)
-        @show i, tval
         t.lower_storage.x_set_traj.time_dict[tval] = i
     end
-    @show t.lower_storage.x_set_traj.time_dict
     nothing
 end
 
@@ -132,7 +130,7 @@ function EAGO.presolve_global!(t::DynamicExt, m::EAGO.Optimizer)
         m.ext_type = DynamicExt(m.ext_type.integrator, np, nx, nt, zero(Interval{Float64}))
         m.ext_type.obj = last_obj
     end
-    load_check_support!(t, m)
+    load_check_support!(m.ext_type, m)
 
     m._presolve_time = time() - m._parse_time
 
@@ -160,7 +158,7 @@ function EAGO.lower_problem!(t::DynamicExt, opt::EAGO.Optimizer)
        setall!(integrator, ParameterValue(), opt._current_xref)
        @__dot__ t.p_intv = Interval(lvbs, uvbs)
        @__dot__ t.lower_storage.p_set = MC{np,NS}(opt._current_xref, t.p_intv, 1:np)
-   end
+    end
 
     # relaxes pODE
     relax!(integrator)

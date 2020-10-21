@@ -23,7 +23,7 @@ end
 
 function getindex(d::Trajectory{T}, indx::Int64, t::Float64) where T<:Number
     tindx = d.time_dict[t]
-    v[tindx][indx]
+    d.v[tindx][indx]
 end
 
 function setindex!(d::Trajectory{T}, val::T, i::Int64, j::Int64) where T<:Number
