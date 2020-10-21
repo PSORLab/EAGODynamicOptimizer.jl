@@ -25,6 +25,7 @@ mutable struct DynamicExt{T} <: EAGO.ExtensionType
     obj::Union{SupportedFunction,Nothing}
     np::Int
     nx::Int
+    nt::Int
     p_val::Vector{Float64}
     p_intv::Vector{Interval{Float64}}
     x_val::Matrix{Float64}
@@ -40,8 +41,6 @@ end
 
 function DynamicExt(integrator, np::Int, nx::Int, nt::Int, ::T) where T
     obj = nothing
-    np = 0
-    nx = 0
     p_val = zeros(np)
     p_intv = zeros(Interval{Float64}, np)
     x_val = zeros(nx, nt)
@@ -57,7 +56,7 @@ function DynamicExt(integrator, np::Int, nx::Int, nt::Int, ::T) where T
         push!(cc_grad, zeros(nx, nt))
     end
     lower_storage = LowerStorage{T}()
-    DynamicExt{T}(integrator, obj, np, nx, p_val, p_intv, x_val,
+    DynamicExt{T}(integrator, obj, np, nx, nt, p_val, p_intv, x_val,
                   obj_val, lo, hi, cv, cc, cv_grad, cc_grad,
                   lower_storage)
 end
@@ -123,11 +122,12 @@ function EAGO.lower_problem!(t::DynamicExt, opt::EAGO.Optimizer)
        @__dot__ opt._current_xref = 0.5*(lvbs + uvbs)
        setall!(integrator, ParameterValue(), opt._current_xref)
        @__dot__ t.p_intv = Interval(lvbs, uvbs)
-       @__dot__ t.lower_storage.p_set = MC{np,NS}(t._current_xref, t.p_set, 1:np)
+       @__dot__ t.lower_storage.p_set = MC{np,NS}(opt._current_xref, t.p_intv, 1:np)
    end
 
     # relaxes pODE
-    relax!(integator)
+    relax!(integrator)
+    @show "ran relax"
 
     # unpacks bounds, relaxations, and subgradients at specific points
     # and computes objective bound/relaxation...
