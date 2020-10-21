@@ -89,12 +89,13 @@ function add_supported_objective!(t::Model, obj)
     return
 end
 
-function load_check_support!(t::DynamicExt, m::EAGO.Optimizer,
+function load_check_support!(q::DynamicExt, m::EAGO.Optimizer,
                              support_set::DBB.SupportSet, nt::Int,
                              nx::Int, ::T) where T
-    f = m.ext_type.obj.f
-    m.ext_type.obj = SupportedFunction(f, support_set.s)
-    for (i,tval) in enumerate(support_set.s)
+    t = m.ext_type
+    f = t.obj.f
+    t.obj = SupportedFunction(f, support_set.s)
+    for (i, tval) in enumerate(support_set.s)
         t.lower_storage.x_set_traj.time_dict[tval] = i
     end
     for i = 1:nt
@@ -205,7 +206,7 @@ function EAGO.lower_problem!(q::DynamicExt, opt::EAGO.Optimizer)
     end
 
     # computes objective
-    t.obj_set = t.obj(t.lower_storage.x_set_traj, t.lower_storage.p_set)
+    t.lower_storage.obj_set = t.obj(t.lower_storage.x_set_traj, t.lower_storage.p_set)
 
     # unpacks objective result to compute lower bound
     if supports_affine
