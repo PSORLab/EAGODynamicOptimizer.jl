@@ -12,7 +12,7 @@ tspan = (0.0, 1.0)
 pL = [2.95]
 pU = [3.05]
 pode_problem = ODERelaxProb(f!, tspan, x0, pL, pU)
-set!(pode_problem, SupportSet([i for i in 0.0:0.01:2.0]))
+set!(pode_problem, SupportSet([i for i in 0.0:0.01:1.0]))
 
 # Initializes the Dynamic Extension
 dynamic_ext = DynamicExt(DifferentialInequality(pode_problem,
