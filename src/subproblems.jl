@@ -28,12 +28,12 @@ mutable struct DynamicExt{T} <: EAGO.ExtensionType
     nt::Int
     p_val::Vector{Float64}
     p_intv::Vector{Interval{Float64}}
-    x_val::Matrix{Float64}
+    x_val::Vector{Vector{Float64}}
     obj_val::Float64
-    lo::Matrix{Float64}
-    hi::Matrix{Float64}
-    cv::Matrix{Float64}
-    cc::Matrix{Float64}
+    lo::Vector{Vector{Float64}}
+    hi::Vector{Vector{Float64}}
+    cv::Vector{Vector{Float64}}
+    cc::Vector{Vector{Float64}}
     cv_grad::Vector{Matrix{Float64}}
     cc_grad::Vector{Matrix{Float64}}
     lower_storage::LowerStorage{T}
@@ -43,12 +43,19 @@ function DynamicExt(integrator, np::Int, nx::Int, nt::Int, ::T) where T
     obj = nothing
     p_val = zeros(np)
     p_intv = zeros(Interval{Float64}, np)
-    x_val = zeros(nx, nt)
     obj_val = 0.0
-    lo = zeros(nx, nt)
-    hi = zeros(nx, nt)
-    cv = zeros(nx, nt)
-    cc = zeros(nx, nt)
+    x_val = Vector{Float64}[]
+    lo = Vector{Float64}[]
+    hi = Vector{Float64}[]
+    cv = Vector{Float64}[]
+    cc = Vector{Float64}[]
+    for i = 1:nt
+        push!(x_val, zeros(nx))
+        push!(lo, zeros(nx))
+        push!(hi, zeros(nx))
+        push!(cv, zeros(nx))
+        push!(cc, zeros(nx))
+    end
     cv_grad = Matrix{Float64}[]
     cc_grad = Matrix{Float64}[]
     for i = 1:np
@@ -92,11 +99,15 @@ function EAGO.presolve_global!(t::DynamicExt, m::EAGO.Optimizer)
     nx = m.ext_type.nx
     nt = 1
     m.ext_type.p_intv = zeros(Interval{Float64}, np)
+    last_obj = m.ext_type.obj
     if supports_affine_relaxation(m.ext_type.integrator)
         m.ext_type = DynamicExt(m.ext_type.integrator, np, nx, nt, zero(MC{np, NS}))
+        m.ext_type.obj = last_obj
     else
         m.ext_type = DynamicExt(m.ext_type.integrator, np, nx, nt, zero(Interval{Float64}))
+        m.ext_type.obj = last_obj
     end
+    #TODO LOAD SUPPORT SET...
 
     m._presolve_time = time() - m._parse_time
 
@@ -108,6 +119,7 @@ function EAGO.lower_problem!(t::DynamicExt, opt::EAGO.Optimizer)
 
     integrator = t.integrator
     np = t.np
+    nt = t.nt
     supports_affine = supports_affine_relaxation(integrator)
 
     # reset box used to evaluate relaxation
@@ -128,18 +140,24 @@ function EAGO.lower_problem!(t::DynamicExt, opt::EAGO.Optimizer)
     # relaxes pODE
     relax!(integrator)
     @show "ran relax"
+    @show t
 
     # unpacks bounds, relaxations, and subgradients at specific points
     # and computes objective bound/relaxation...
-    getall!(t.lo, integrator, Bound{Lower}())
-    getall!(t.hi, integrator, Bound{Upper}())
+    for i = 1:nt
+        support_time = t.obj.support[i]
+        get!(t.lo[i], integrator, Bound{Lower}(support_time))
+        get!(t.hi[i], integrator, Bound{Upper}(support_time))
+    end
     load_trajectory!(t.x_intv, t.lo, t.hi)
 
     if supports_affine
-        getall!(t.cv, integrator, Relaxation{Lower}())
-        getall!(t.cc, integrator, Relaxation{Upper}())
-        getall!(t.cv_grad, integrator, Subgradient{Lower}())
-        getall!(t.cc_grad, integrator, Subgradient{Upper}())
+        for i = 1:nt
+            get!(t.cv[i], integrator, Relaxation{Lower}(support_time))
+            get!(t.cc[i], integrator, Relaxation{Upper}(support_time))
+            get!(t.cv_grad[i], integrator, Subgradient{Lower}(support_time))
+            get!(t.cc_grad[i], integrator, Subgradient{Upper}(support_time))
+        end
         load_trajectory!(t.x_set, t.cv, t.cc, t.intv, t.cv_grad, t.cc_grad)
         t.obj_set = t.objective(t.x_set, t.p_set)
 
