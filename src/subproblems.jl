@@ -251,8 +251,6 @@ function EAGO.upper_problem!(q::DynamicExt, opt::EAGO.Optimizer)
 end
 
 function EAGO.preprocess!(t::DynamicExt, p::Optimizer)
-    @show "ran preprocess"
-
     p._preprocess_feasibility = true
     return nothing
 end
