@@ -219,7 +219,7 @@ function EAGO.lower_problem!(q::DynamicExt, opt::EAGO.Optimizer)
         else
         end
     else
-        opt._lower_objective_value = t.obj_intv.lo
+        opt._lower_objective_value = lo(t.lower_storage.obj_set)
         opt._lower_solution = opt._current_xref
         opt._lower_feasibility = true
     end
@@ -227,12 +227,13 @@ function EAGO.lower_problem!(q::DynamicExt, opt::EAGO.Optimizer)
     return nothing
 end
 
-function EAGO.upper_problem!(t::DynamicExt, opt::EAGO.Optimizer)
+function EAGO.upper_problem!(q::DynamicExt, opt::EAGO.Optimizer)
 
     @show "ran upper bound"
+    t = opt.ext_type
 
     # get all at particular points???
-    integrate!(t.integator)
+    integrate!(t.integrator)
     getall!(t.p_val, integrator, DBB.ParameterValue())
     for i = 1:t.nt
         tval = t.obj.support[i]
@@ -261,4 +262,4 @@ function EAGO.postprocess!(t::DynamicExt, p::Optimizer)
     return nothing
 end
 
-EAGO.cut_condition(t::DynamicExt, p::Optimizer) = true
+EAGO.cut_condition(t::DynamicExt, p::Optimizer) = false
