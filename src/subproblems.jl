@@ -89,14 +89,18 @@ function add_supported_objective!(t::Model, obj)
     return
 end
 
-function load_check_support!(t::DynamicExt, m::EAGO.Optimizer)
-    support_set = get(m.ext_type.integrator, DBB.SupportSet())
+function load_check_support!(t::DynamicExt, m::EAGO.Optimizer,
+                             support_set::DBB.SupportSet, nt::Int,
+                             nx::Int, ::T) where T
     f = m.ext_type.obj.f
     m.ext_type.obj = SupportedFunction(f, support_set.s)
     for (i,tval) in enumerate(support_set.s)
         t.lower_storage.x_set_traj.time_dict[tval] = i
     end
-    nothing
+    for i = 1:nt
+        fill!(t.lower_storage.x_set_traj.v, zeros(T, nx))
+    end
+    return
 end
 
 function load_intervals!(d::Vector{Vector{Interval{Float64}}},
@@ -120,17 +124,22 @@ function EAGO.presolve_global!(t::DynamicExt, m::EAGO.Optimizer)
     # set up for extension
     np = m.ext_type.np
     nx = m.ext_type.nx
-    nt = 1
     m.ext_type.p_intv = zeros(Interval{Float64}, np)
     last_obj = m.ext_type.obj
-    if supports_affine_relaxation(m.ext_type.integrator)
-        m.ext_type = DynamicExt(m.ext_type.integrator, np, nx, nt, zero(MC{np, NS}))
+
+    integrator = m.ext_type.integrator
+    support_set = get(integrator, DBB.SupportSet())
+    nt = length(support_set.s)
+    @show nt
+    if supports_affine_relaxation(integrator)
+        m.ext_type = DynamicExt(integrator, np, nx, nt, zero(MC{np, NS}))
         m.ext_type.obj = last_obj
+        load_check_support!(t, m, support_set, nt, nx,  zero(MC{np, NS}))
     else
-        m.ext_type = DynamicExt(m.ext_type.integrator, np, nx, nt, zero(Interval{Float64}))
+        m.ext_type = DynamicExt(integrator, np, nx, nt, zero(Interval{Float64}))
         m.ext_type.obj = last_obj
+        load_check_support!(t, m, support_set, nt, nx, zero(Interval{Float64}))
     end
-    load_check_support!(m.ext_type, m)
 
     m._presolve_time = time() - m._parse_time
 
@@ -180,15 +189,18 @@ function EAGO.lower_problem!(t::DynamicExt, opt::EAGO.Optimizer)
 
     # loads trajectory
     if supports_affine
+        @show "supports affine branch"
         load_trajectory!(t.lower_storage.x_set_traj, t.cv,
                          t.cc, t.x_intv, t.cv_grad, t.cc_grad)
     else
+        @show "interval branch"
         for i = 1:nt
             t.lower_storage.x_set_traj.v[i] .= t.x_intv[i]
         end
     end
 
     # computes objective
+    @show t.lower_storage.x_set_traj.v # TODO: FIX x_set_traj loading...
     t.obj_set = t.obj(t.lower_storage.x_set_traj, t.lower_storage.p_set)
 
     # unpacks objective result to compute lower bound
