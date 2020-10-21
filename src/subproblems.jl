@@ -62,9 +62,9 @@ function DynamicExt(integrator, np::Int, nx::Int, nt::Int, ::T) where T
     end
     cv_grad = Matrix{Float64}[]
     cc_grad = Matrix{Float64}[]
-    for i = 1:np
-        push!(cv_grad, zeros(nx, nt))
-        push!(cc_grad, zeros(nx, nt))
+    for i = 1:nt
+        push!(cv_grad, zeros(nx, np))
+        push!(cc_grad, zeros(nx, np))
     end
     lower_storage = LowerStorage{T}()
     DynamicExt{T}(integrator, obj, np, nx, nt, p_val, p_intv, x_val,
@@ -73,10 +73,10 @@ function DynamicExt(integrator, np::Int, nx::Int, nt::Int, ::T) where T
 end
 
 function DynamicExt(integrator)
+    np = DBB.get(integrator, DBB.ParameterNumber())
+    nx = DBB.get(integrator, DBB.StateNumber())
+    nt = DBB.get(integrator, DBB.SupportNumber())
     if supports_affine_relaxation(integrator)
-        np = DBB.get(integrator, DBB.ParameterNumber())
-        nx = DBB.get(integrator, DBB.StateNumber())
-        nt = DBB.get(integrator, DBB.SupportNumber())
         return DynamicExt(integrator, np, nx, nt, zero(MC{np,NS}))
     end
     return DynamicExt(integrator, np, nx, nt, zero(Interval{Float64}))
@@ -130,25 +130,32 @@ function EAGO.presolve_global!(t::DynamicExt, m::EAGO.Optimizer)
     integrator = m.ext_type.integrator
     support_set = get(integrator, DBB.SupportSet())
     nt = length(support_set.s)
-    @show nt
     if supports_affine_relaxation(integrator)
         m.ext_type = DynamicExt(integrator, np, nx, nt, zero(MC{np, NS}))
         m.ext_type.obj = last_obj
         load_check_support!(t, m, support_set, nt, nx,  zero(MC{np, NS}))
+        for i = 1:nt
+            push!(m.ext_type.lower_storage.x_set_traj.v, zeros(MC{np,NS}, nx))
+        end
     else
         m.ext_type = DynamicExt(integrator, np, nx, nt, zero(Interval{Float64}))
         m.ext_type.obj = last_obj
         load_check_support!(t, m, support_set, nt, nx, zero(Interval{Float64}))
+        for i = 1:nt
+            push!(m.ext_type.lower_storage.x_set_traj.v, zeros(Interval{Float64}, nx))
+        end
     end
+    m.ext_type.lower_storage.x_set_traj.nt = nt
+    m.ext_type.lower_storage.x_set_traj.nx = nx
 
     m._presolve_time = time() - m._parse_time
 
     return nothing
 end
 
-function EAGO.lower_problem!(t::DynamicExt, opt::EAGO.Optimizer)
-    @show "ran lower bound"
+function EAGO.lower_problem!(q::DynamicExt, opt::EAGO.Optimizer)
 
+    t = opt.ext_type
     integrator = t.integrator
     np = t.np
     nt = t.nt
@@ -189,18 +196,15 @@ function EAGO.lower_problem!(t::DynamicExt, opt::EAGO.Optimizer)
 
     # loads trajectory
     if supports_affine
-        @show "supports affine branch"
         load_trajectory!(t.lower_storage.x_set_traj, t.cv,
                          t.cc, t.x_intv, t.cv_grad, t.cc_grad)
     else
-        @show "interval branch"
         for i = 1:nt
             t.lower_storage.x_set_traj.v[i] .= t.x_intv[i]
         end
     end
 
     # computes objective
-    @show t.lower_storage.x_set_traj.v # TODO: FIX x_set_traj loading...
     t.obj_set = t.obj(t.lower_storage.x_set_traj, t.lower_storage.p_set)
 
     # unpacks objective result to compute lower bound
