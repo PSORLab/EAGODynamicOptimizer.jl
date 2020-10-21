@@ -31,7 +31,7 @@ m, y = EAGODynamicModel(dynamic_ext, "verbosity" => 4)
 
 # Adds objective function
 function obj(x, p)
-    x(1, 0.01)*p[1] + x(2, 0.05)
+    x[1, 0.01]*p[1] + x[2, 0.05]
 end
 add_supported_objective!(m, obj)
 

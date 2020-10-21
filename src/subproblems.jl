@@ -19,6 +19,7 @@ struct SupportedFunction
     f
     support::Vector{Float64}
 end
+(d::SupportedFunction)(x, p) = d.f(x, p)
 
 mutable struct DynamicExt{T} <: EAGO.ExtensionType
     integrator
@@ -92,6 +93,11 @@ function load_check_support!(t::DynamicExt, m::EAGO.Optimizer)
     support_set = get(m.ext_type.integrator, DBB.SupportSet())
     f = m.ext_type.obj.f
     m.ext_type.obj = SupportedFunction(f, support_set.s)
+    for (i,tval) in enumerate(support_set.s)
+        @show i, tval
+        t.lower_storage.x_set_traj.time_dict[tval] = i
+    end
+    @show t.lower_storage.x_set_traj.time_dict
     nothing
 end
 
@@ -158,8 +164,6 @@ function EAGO.lower_problem!(t::DynamicExt, opt::EAGO.Optimizer)
 
     # relaxes pODE
     relax!(integrator)
-    @show "ran relax"
-    @show t
 
     # unpacks bounds, relaxations, and subgradients at specific points
     # and computes objective bound/relaxation...
@@ -176,16 +180,20 @@ function EAGO.lower_problem!(t::DynamicExt, opt::EAGO.Optimizer)
     end
     load_intervals!(t.x_intv, t.lo, t.hi, nt)
 
+    # loads trajectory
     if supports_affine
-        load_trajectory!(t.x_set, t.cv, t.cc, t.intv, t.cv_grad, t.cc_grad)
-        t.obj_set = t.objective(t.x_set, t.p_set)
-
-        # add affine relaxation... to opt problem
-
+        load_trajectory!(t.lower_storage.x_set_traj, t.cv,
+                         t.cc, t.x_intv, t.cv_grad, t.cc_grad)
     else
-        t.obj_intv = t.objective(t.x_intv, t.p_intv)
+        for i = 1:nt
+            t.lower_storage.x_set_traj.v[i] .= t.x_intv[i]
+        end
     end
 
+    # computes objective
+    t.obj_set = t.obj(t.lower_storage.x_set_traj, t.lower_storage.p_set)
+
+    # unpacks objective result to compute lower bound
     if supports_affine
         if valid_flag
             opt._lower_objective_value = MOI.get(relaxed_optimizer, MOI.ObjectiveValue())
