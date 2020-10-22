@@ -16,8 +16,8 @@ set!(pode_problem, SupportSet([i for i in 0.0:0.01:1.0]))
 
 # Initializes the Dynamic Extension
 dynamic_ext = DynamicExt(DifferentialInequality(pode_problem,
-                                                calculate_relax = false,
-                                                calculate_subgradient = false))
+                                                calculate_relax = true,
+                                                calculate_subgradient = true))
 
 #=
 steps = 100

@@ -242,22 +242,35 @@ function EAGO.lower_problem!(q::DynamicExt, opt::EAGO.Optimizer)
     # unpacks objective result to compute lower bound
     if supports_affine
 
-        relax_objective!(m, 1)
-        relaxed_optimizer = m.relaxed_optimizer
+        saf_temp = opt._working_problem._objective_saf
+        saf_temp.constant = t.lower_storage.obj_set.cv
+        for i = 1:t.np
+            coeff = @inbounds t.lower_storage.obj_set.cv_grad[i]
+            saf_temp.terms[i] = MOI.ScalarAffineTerm{Float64}(coeff, MOI.VariableIndex(i))
+            pv = opt._current_xref[i]
+            saf_temp.constant = saf_temp.constant - coeff*pv
+        end
+
+        relaxed_optimizer = opt.relaxed_optimizer
+        MOI.set(relaxed_optimizer, MOI.ObjectiveFunction{MOI.ScalarAffineFunction{Float64}}(), saf_temp)
         MOI.set(relaxed_optimizer, MOI.ObjectiveSense(), MOI.MIN_SENSE)
         MOI.optimize!(relaxed_optimizer)
 
-        m._lower_termination_status = MOI.get(relaxed_optimizer, MOI.TerminationStatus())
-        m._lower_result_status = MOI.get(relaxed_optimizer, MOI.PrimalStatus())
-        valid_flag, feasible_flag = EAGO.is_globally_optimal(m._lower_termination_status, m._lower_result_status)
+        opt._lower_termination_status = MOI.get(relaxed_optimizer, MOI.TerminationStatus())
+        opt._lower_result_status = MOI.get(relaxed_optimizer, MOI.PrimalStatus())
+        valid_flag, feasible_flag = EAGO.is_globally_optimal(opt._lower_termination_status, opt._lower_result_status)
 
         if valid_flag
+            opt._cut_add_flag = true
+            opt._lower_feasibility = true
             opt._lower_objective_value = MOI.get(relaxed_optimizer, MOI.ObjectiveValue())
-            for i = 1:m._working_problem._variable_count
+            for i = 1:opt._working_problem._variable_count
                 opt._lower_solution[i] = MOI.get(relaxed_optimizer, MOI.VariablePrimal(), opt._relaxed_variable_index[i])
             end
-            #opt._lower_feasibility = supports_affine ? : true
         else
+            opt._lower_objective_value = lo(t.lower_storage.obj_set)
+            opt._lower_solution = opt._current_xref
+            opt._lower_feasibility = true
         end
     else
         opt._lower_objective_value = lo(t.lower_storage.obj_set)
