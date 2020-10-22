@@ -31,6 +31,7 @@ mutable struct DynamicExt{T} <: EAGO.ExtensionType
     p_intv::Vector{Interval{Float64}}
     x_val::Vector{Vector{Float64}}
     x_intv::Vector{Vector{Interval{Float64}}}
+    x_traj::Trajectory{Float64}
     obj_val::Float64
     lo::Vector{Vector{Float64}}
     hi::Vector{Vector{Float64}}
@@ -48,6 +49,7 @@ function DynamicExt(integrator, np::Int, nx::Int, nt::Int, ::T) where T
     obj_val = 0.0
     x_val = Vector{Float64}[]
     x_intv = Vector{Interval{Float64}}[]
+    x_traj = Trajectory{Float64}()
     lo = Vector{Float64}[]
     hi = Vector{Float64}[]
     cv = Vector{Float64}[]
@@ -68,7 +70,7 @@ function DynamicExt(integrator, np::Int, nx::Int, nt::Int, ::T) where T
     end
     lower_storage = LowerStorage{T}()
     DynamicExt{T}(integrator, obj, np, nx, nt, p_val, p_intv, x_val,
-                  x_intv, obj_val, lo, hi, cv, cc, cv_grad, cc_grad,
+                  x_intv, x_traj, obj_val, lo, hi, cv, cc, cv_grad, cc_grad,
                   lower_storage)
 end
 
@@ -97,10 +99,13 @@ function load_check_support!(q::DynamicExt, m::EAGO.Optimizer,
     t.obj = SupportedFunction(f, support_set.s)
     for (i, tval) in enumerate(support_set.s)
         t.lower_storage.x_set_traj.time_dict[tval] = i
+        t.x_traj.time_dict[tval] = i
     end
     for i = 1:nt
         fill!(t.lower_storage.x_set_traj.v, zeros(T, nx))
+        fill!(t.x_traj.v, zeros(Float64, nx))
     end
+    @show t.x_traj
     return
 end
 
@@ -116,6 +121,8 @@ end
 function EAGO.presolve_global!(t::DynamicExt, m::EAGO.Optimizer)
 
     EAGO.presolve_global!(EAGO.DefaultExt(), m)
+
+    @show m._branch_variable_count
 
     # add storage for objective cut
     m._working_problem._objective_saf.terms = fill(MOI.ScalarAffineTerm{Float64}(0.0,
@@ -145,6 +152,9 @@ function EAGO.presolve_global!(t::DynamicExt, m::EAGO.Optimizer)
         for i = 1:nt
             push!(m.ext_type.lower_storage.x_set_traj.v, zeros(Interval{Float64}, nx))
         end
+    end
+    for i = 1:nt
+        push!(m.ext_type.x_traj.v, zeros(Float64, nx))
     end
     m.ext_type.lower_storage.x_set_traj.nt = nt
     m.ext_type.lower_storage.x_set_traj.nx = nx
@@ -238,8 +248,8 @@ function EAGO.upper_problem!(q::DynamicExt, opt::EAGO.Optimizer)
     integrate!(t.integrator)
     getall!(t.p_val, t.integrator, DBB.ParameterValue())
     for i = 1:t.nt
-        tval = t.obj.support[i]
-        get(t.x_val[i], integrator, DBB.Value(support_time))
+        support_time = t.obj.support[i]
+        get(t.x_val[i], t.integrator, DBB.Value(support_time))
         t.lower_storage.x_set_traj.v[i] .= t.x_val[i]
     end
     t.obj_val = t.obj.f(t.x_traj, t.p_val)
