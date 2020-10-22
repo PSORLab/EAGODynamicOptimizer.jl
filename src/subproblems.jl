@@ -233,14 +233,15 @@ function EAGO.upper_problem!(q::DynamicExt, opt::EAGO.Optimizer)
     t = opt.ext_type
 
     # get all at particular points???
+    DBB.set!(t.integrator, DBB.LocalSensitivityOn(), false)
+
     integrate!(t.integrator)
-    getall!(t.p_val, integrator, DBB.ParameterValue())
+    getall!(t.p_val, t.integrator, DBB.ParameterValue())
     for i = 1:t.nt
         tval = t.obj.support[i]
-        t.x_val[i] .= get(integrator, DBB.Value(TimeIndex(tval)))
+        get(t.x_val[i], integrator, DBB.Value(support_time))
+        t.lower_storage.x_set_traj.v[i] .= t.x_val[i]
     end
-
-    load_trajectory!(t.x_traj, t.x_val)
     t.obj_val = t.obj.f(t.x_traj, t.p_val)
 
     opt._upper_objective_value = t.obj_val
