@@ -200,10 +200,13 @@ function EAGO.lower_problem!(q::DynamicExt, opt::EAGO.Optimizer)
     # set reference point to evaluate relaxation
     @__dot__ opt._current_xref = 0.5*(lvbs + uvbs)
     setall!(integrator, ParameterValue(), opt._current_xref)
+    @__dot__ t.p_intv = Interval(lvbs, uvbs)
     if supports_affine
-       @__dot__ t.p_intv = Interval(lvbs, uvbs)
-       @__dot__ t.lower_storage.p_set = MC{np,NS}(opt._current_xref, t.p_intv, 1:np)
+        @__dot__ t.lower_storage.p_set = MC{np,NS}(opt._current_xref, t.p_intv, 1:np)
+    else
+        @__dot__ t.lower_storage.p_set = t.p_intv
     end
+
 
     # relaxes pODE
     relax!(integrator)
@@ -238,6 +241,16 @@ function EAGO.lower_problem!(q::DynamicExt, opt::EAGO.Optimizer)
 
     # unpacks objective result to compute lower bound
     if supports_affine
+
+        relax_objective!(m, 1)
+        relaxed_optimizer = m.relaxed_optimizer
+        MOI.set(relaxed_optimizer, MOI.ObjectiveSense(), MOI.MIN_SENSE)
+        MOI.optimize!(relaxed_optimizer)
+
+        m._lower_termination_status = MOI.get(relaxed_optimizer, MOI.TerminationStatus())
+        m._lower_result_status = MOI.get(relaxed_optimizer, MOI.PrimalStatus())
+        valid_flag, feasible_flag = EAGO.is_globally_optimal(m._lower_termination_status, m._lower_result_status)
+
         if valid_flag
             opt._lower_objective_value = MOI.get(relaxed_optimizer, MOI.ObjectiveValue())
             for i = 1:m._working_problem._variable_count
@@ -270,7 +283,6 @@ function EAGO.upper_problem!(q::DynamicExt, opt::EAGO.Optimizer)
         t.x_traj.v[i] .= t.x_val[i]
     end
     t.obj_val = t.obj.f(t.x_traj, t.p_val)
-
     opt._upper_objective_value = t.obj_val
     opt._upper_feasibility = true
     @__dot__ opt._upper_solution = t.p_val
