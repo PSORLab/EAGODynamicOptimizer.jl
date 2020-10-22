@@ -105,7 +105,6 @@ function load_check_support!(q::DynamicExt, m::EAGO.Optimizer,
         fill!(t.lower_storage.x_set_traj.v, zeros(T, nx))
         fill!(t.x_traj.v, zeros(Float64, nx))
     end
-    @show t.x_traj
     return
 end
 
@@ -122,7 +121,26 @@ function EAGO.presolve_global!(t::DynamicExt, m::EAGO.Optimizer)
 
     EAGO.presolve_global!(EAGO.DefaultExt(), m)
 
-    @show m._branch_variable_count
+    m._working_problem._variable_count = m._branch_variable_count
+    copyto!(m._working_problem._variable_info, m._input_problem._variable_info)
+
+    # add a map of branch/node index to variables in the continuous solution
+    for i = 1:m._working_problem._variable_count
+        if m._working_problem._variable_info[i].is_fixed
+            m._branch_variables[i] = false
+            continue
+        end
+        if m._branch_variables[i]
+            push!(m._branch_to_sol_map, i)
+        end
+    end
+
+    # creates reverse map
+    m._sol_to_branch_map = zeros(m._working_problem._variable_count)
+    for i = 1:length(m._branch_to_sol_map)
+        j = m._branch_to_sol_map[i]
+        m._sol_to_branch_map[j] = i
+    end
 
     # add storage for objective cut
     m._working_problem._objective_saf.terms = fill(MOI.ScalarAffineTerm{Float64}(0.0,
@@ -180,9 +198,9 @@ function EAGO.lower_problem!(q::DynamicExt, opt::EAGO.Optimizer)
     setall!(integrator, ParameterBound{Upper}(), uvbs)
 
     # set reference point to evaluate relaxation
+    @__dot__ opt._current_xref = 0.5*(lvbs + uvbs)
+    setall!(integrator, ParameterValue(), opt._current_xref)
     if supports_affine
-       @__dot__ opt._current_xref = 0.5*(lvbs + uvbs)
-       setall!(integrator, ParameterValue(), opt._current_xref)
        @__dot__ t.p_intv = Interval(lvbs, uvbs)
        @__dot__ t.lower_storage.p_set = MC{np,NS}(opt._current_xref, t.p_intv, 1:np)
     end
@@ -239,7 +257,6 @@ end
 
 function EAGO.upper_problem!(q::DynamicExt, opt::EAGO.Optimizer)
 
-    @show "ran upper bound"
     t = opt.ext_type
 
     # get all at particular points???
@@ -250,7 +267,7 @@ function EAGO.upper_problem!(q::DynamicExt, opt::EAGO.Optimizer)
     for i = 1:t.nt
         support_time = t.obj.support[i]
         get(t.x_val[i], t.integrator, DBB.Value(support_time))
-        t.lower_storage.x_set_traj.v[i] .= t.x_val[i]
+        t.x_traj.v[i] .= t.x_val[i]
     end
     t.obj_val = t.obj.f(t.x_traj, t.p_val)
 

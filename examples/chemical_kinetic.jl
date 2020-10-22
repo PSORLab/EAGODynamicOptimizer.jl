@@ -27,7 +27,7 @@ dynamic_ext = DynamicExt(DiscretizeRelax(pode_problem,
                                          step_limit = steps, relax = false))
 =#
 # Creates Model with dynamic extension
-m, y = EAGODynamicModel(dynamic_ext, "verbosity" => 4)
+m, y = EAGODynamicModel(dynamic_ext, "verbosity" => 1)
 
 # Adds objective function
 function obj(x, p)
