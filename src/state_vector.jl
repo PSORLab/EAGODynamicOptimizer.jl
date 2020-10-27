@@ -1,3 +1,17 @@
+# Copyright (c) 2020: Matthew Wilhelm & Matthew Stuber.
+# This work is licensed under the Creative Commons Attribution-NonCommercial-
+# ShareAlike 4.0 International License. To view a copy of this license, visit
+# http://creativecommons.org/licenses/by-nc-sa/4.0/ or send a letter to Creative
+# Commons, PO Box 1866, Mountain View, CA 94042, USA.
+#############################################################################
+# EAGODynamicOptimizer.jl
+# See https://github.com/PSORLab/EAGODynamicOptimizer.jl
+#############################################################################
+# src/state_vector.jl
+# Utilities for writing functions which reference support time and index
+# when using Base.getindex.
+#############################################################################
+
 mutable struct Trajectory{T<:Number}
     v::Vector{Vector{T}}
     time_dict::Dict{Float64,Int64}

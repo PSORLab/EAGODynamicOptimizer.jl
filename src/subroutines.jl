@@ -1,3 +1,16 @@
+# Copyright (c) 2020: Matthew Wilhelm & Matthew Stuber.
+# This work is licensed under the Creative Commons Attribution-NonCommercial-
+# ShareAlike 4.0 International License. To view a copy of this license, visit
+# http://creativecommons.org/licenses/by-nc-sa/4.0/ or send a letter to Creative
+# Commons, PO Box 1866, Mountain View, CA 94042, USA.
+#############################################################################
+# EAGODynamicOptimizer.jl
+# See https://github.com/PSORLab/EAGODynamicOptimizer.jl
+#############################################################################
+# src/subroutines.jl
+# Defines the DynamicExt and extends EAGO subroutines used in branch and bound.
+#############################################################################
+
 function supports_affine_relaxation(integrator)
     supports(integrator, Relaxation{Lower}()) &&
     supports(integrator, Relaxation{Upper}()) &&
