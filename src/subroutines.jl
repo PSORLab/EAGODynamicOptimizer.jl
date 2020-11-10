@@ -277,9 +277,16 @@ function EAGO.lower_problem!(q::DynamicExt, opt::EAGO.Optimizer)
         if valid_flag
             opt._cut_add_flag = true
             opt._lower_feasibility = true
-            opt._lower_objective_value = MOI.get(relaxed_optimizer, MOI.ObjectiveValue())
-            for i = 1:opt._working_problem._variable_count
-                opt._lower_solution[i] = MOI.get(relaxed_optimizer, MOI.VariablePrimal(), opt._relaxed_variable_index[i])
+            aff_obj = MOI.get(relaxed_optimizer, MOI.ObjectiveValue())
+            if aff_obj > lo(t.lower_storage.obj_set)
+                opt._lower_objective_value = MOI.get(relaxed_optimizer, MOI.ObjectiveValue())
+                for i = 1:opt._working_problem._variable_count
+                    opt._lower_solution[i] = MOI.get(relaxed_optimizer, MOI.VariablePrimal(), opt._relaxed_variable_index[i])
+                end
+            else
+                opt._lower_objective_value = lo(t.lower_storage.obj_set)
+                opt._lower_solution = opt._current_xref
+                opt._lower_feasibility = true
             end
         else
             opt._lower_objective_value = lo(t.lower_storage.obj_set)
