@@ -3,7 +3,11 @@ using JuMP, EAGODynamicOptimizer, DynamicBoundsBase,
 
 using DataFrames, CSV
 
-data = CSV.read("kinetic_intensity_data.csv")
+data = CSV.read("C:\\Users\\wilhe\\Desktop\\Package Development\\EAGODynamicOptimizer.jl\\examples\\kinetic_intensity_data.csv", DataFrame)
+data_dict = Dict{Float64,Float64}()
+for r in eachrow(data)
+    data_dict[r.time] = r.intensity
+end
 
 # Defines pODEs problem
 x0(p) = [140.0; 0.4; 0.0; 0.0; 0.0]
@@ -17,42 +21,62 @@ function f!(dx, x, p, t)
     k5 = 0.0012
     cO2 = 0.002
 
-    dx[1] = k1*x[4]*x[5]-cO2*(p[1]+p[2])*x[1] + p[1]*x[3]/K2+p[2]*x[2]/K3-k5*x[1]^2
+    dx[1] = k1*x[4]*x[5]-cO2*(p[1]+p[2])*x[1] + p[1]*x[3]/K2+p[2]*x[2]/K3-k5*x[1]*x[1]
     dx[2] = p[2]*cO2*x[1] - (p[2]/K3 + p[3])*x[2]
     dx[3] = p[1]*cO2*x[1] - p[1]*x[3]/K2
     dx[4] = -k1s*x[4]*x[5]
     dx[5] = -k1*x[4]*x[5]
     nothing
 end
-tspan = (0.0, 1.0)
-pL = [10.0  10.0  0.001]
-pU = [1200.0  1200.0  40.0]
+tspan = (0.0, 2.0)
+pL = [10.0;  10.0;  0.001]
+pU = [1200.0;  1200.0;  40.0]
 pode_problem = ODERelaxProb(f!, tspan, x0, pL, pU)
-set!(pode_problem, SupportSet([i for i in 0.0:0.01:2.0]))
+set!(pode_problem, SupportSet([i for i in 0.01:0.01:2.0]))
+
+ticks = 100.0
+steps = 4.0
+tend = 1*steps/ticks # lo 7.6100
+tol = 1E-5
 
 # Initializes the Dynamic Extension
+#=
 dynamic_ext = DynamicExt(DifferentialInequality(pode_problem,
-                                                calculate_relax = true,
-                                                calculate_subgradient = true))
+                                                calculate_relax = false,
+                                                calculate_subgradient = false))
+=#
+dynamic_ext = DynamicExt(DiscretizeRelax(pode_problem, DynamicBoundspODEsDiscrete.LohnerContractor{5}(),
+                                         h = 1/ticks, repeat_limit = 1, skip_step2 = false,
+                                         step_limit = steps, relax = false, tol= tol))
 
-m, y = EAGODynamicModel(dynamic_ext, "verbosity" => 1, "output_iterations" => 1)
+m, y = EAGODynamicModel(dynamic_ext, "verbosity" => 1,
+                        "output_iterations" => 100,
+                        "time_limit" => 1000.0,
+                        "log_on" => true)
 
 # Defines function for intensity
 intensity(xA,xB,xD) = xA + (2/21)*xB + (2/21)*xD
 
 # Defines the objective: integrates the ODEs and calculates SSE
-function objective(x, p)
-
-    SSE = zero(typeof(p))
-    for i = 1:200
-        SSE += (intensity(x[1, t], x[2, t], x[3, t]) - data[t, :intensity][i])^2
+function objective_data(x, p, data_dict)
+    SSE = zero(typeof(p[1]))
+    for t = 0.01:0.01:2.0
+        val = data_dict[t]
+        SSE += (intensity(x[1, t], x[2, t], x[3, t]) - val)^2
     end
     return SSE
 end
+objective(x, p) = objective_data(x, p, data_dict)
 
 add_supported_objective!(m, objective)
 
+println(" ")
+println("optimize start")
 optimize!(m)
-objective_value = objective_value(m)
+bm = backend(m)
+bm_ext = bm.optimizer.model.optimizer.ext_type
+println("optimize end")
+
+obj_value = objective_value(m)
 status = primal_status(m)
 solution = value.(y)

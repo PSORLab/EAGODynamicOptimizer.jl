@@ -82,6 +82,7 @@ function DynamicExt(integrator, np::Int, nx::Int, nt::Int, ::T) where T
         push!(cc_grad, zeros(nx, np))
     end
     lower_storage = LowerStorage{T}()
+    lower_storage.p_set = zeros(T,np)
     DynamicExt{T}(integrator, obj, np, nx, nt, p_val, p_intv, x_val,
                   x_intv, x_traj, obj_val, lo, hi, cv, cc, cv_grad, cc_grad,
                   lower_storage)
