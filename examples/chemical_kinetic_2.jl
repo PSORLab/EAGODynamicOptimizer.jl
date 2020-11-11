@@ -10,7 +10,7 @@ for r in eachrow(data)
 end
 
 # Defines pODEs problem
-x0(p) = [140.0; 0.4; 0.0; 0.0; 0.0]
+x0(p) = [0.0; 0.0; 0.0; 0.4; 140.0]
 function RHS!(dx, x, p, t)
 
     T = 273.0
@@ -32,7 +32,18 @@ tspan = (0.0, 2.0)
 pL = [10.0;  10.0;  0.001]
 pU = [1200.0;  1200.0;  40.0]
 pode_problem = ODERelaxProb(RHS!, tspan, x0, pL, pU)
+
 set!(pode_problem, SupportSet([i for i in 0.01:0.01:2.0]))
+
+# define constant state bounds
+xL = zeros(5)
+xU = [140.0; 140; 140.0; 0.4; 140.0]
+set!(pode_problem, ConstantStateBounds(xL, xU))
+
+# define polyhedral bounds
+A = []
+b = []
+#PolyhedralConstraint(A, b)
 
 ticks = 100.0
 steps = 200.0
