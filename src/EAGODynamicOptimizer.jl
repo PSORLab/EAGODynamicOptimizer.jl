@@ -24,8 +24,8 @@ const DBB = DynamicBoundsBase
 
 export DynamicExt, EAGODynamicModel, add_supported_objective!
 
-include("global/global_extension.jl")
 include("global/state_vector.jl")
+include("global/global_extension.jl")
 include("global/subroutines.jl")
 include("global/model.jl")
 include("semiinfinite/sip_extension.jl")
