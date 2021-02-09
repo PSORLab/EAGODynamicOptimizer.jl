@@ -1,15 +1,15 @@
-mutable struct SIPDynamicExt <: EAGO.ExtensionType
-    llp_ext::DynamicExt
-    bnd_ext::DynamicExt
+mutable struct SIPDynamicExt{T} <: EAGO.ExtensionType
+    llp_ext::DynamicExt{T}
+    bnd_ext::DynamicExt{T}
 end
-function get_ext(m::SIPDynamicExt, s::T) where T <: Union{LowerLevel1,LowerLevel2,LowerLevel3}
+function get_ext(m::SIPDynamicExt{T}, s::S) where {T, S <: Union{LowerLevel1,LowerLevel2,LowerLevel3}}
     get_ext.llp
 end
-function get_ext(m::SIPDynamicExt, s::T) where T <: Union{LowerProblem,UpperProblem,ResProblem}
+function get_ext(m::SIPDynamicExt{T}, s::S) where {T, S <: Union{LowerProblem,UpperProblem,ResProblem}}
     get_ext.bnd_ext
 end
 
-function build_model(t::SIPDynamicExt, a::A, s::S, p::SIPProblem) where {A <: AbstractSIPAlgo, S <: AbstractSubproblemType}
+function build_model(t::SIPDynamicExt{T}, a::A, s::S, p::SIPProblem) where {T, A <: AbstractSIPAlgo, S <: AbstractSubproblemType}
     model, v = EAGODynamicModel(get_ext(t,s), EAGO.Optimizer)
     for (k,v) in get_sip_kwargs(s,p)
         MOI.set(model, MOI.RawParameter(String(k)), v)
@@ -18,9 +18,9 @@ function build_model(t::SIPDynamicExt, a::A, s::S, p::SIPProblem) where {A <: Ab
     return model, v
 end
 
-function sip_llp!(t::SIPDynamicExt, alg::A, s::S, result::SIPResult,
+function sip_llp!(t::SIPDynamicExt{T}, alg::A, s::S, result::SIPResult,
                   sr::SIPSubResult, prob::SIPProblem, cb::SIPCallback,
-                  i::Int64, tol::Float64 = -Inf)
+                  i::Int64, tol::Float64 = -Inf) where T
     m, p = build_model(t, alg, s, prob)
     set_tolerance!(t, alg, s, m, sr, i)
 
@@ -42,8 +42,8 @@ function sip_llp!(t::SIPDynamicExt, alg::A, s::S, result::SIPResult,
     return nothing
 end
 
-function sip_bnd!(t::SIPDynamicExt, alg::A, s::S, sr::SIPSubResult, result::SIPResult,
-                  prob::SIPProblem, cb::SIPCallback) where {A <: AbstractSIPAlgo,
+function sip_bnd!(t::SIPDynamicExt{T}, alg::A, s::S, sr::SIPSubResult, result::SIPResult,
+                  prob::SIPProblem, cb::SIPCallback) where {T, A <: AbstractSIPAlgo,
                                                             S <: AbstractSubproblemType}
 
     # create JuMP model
