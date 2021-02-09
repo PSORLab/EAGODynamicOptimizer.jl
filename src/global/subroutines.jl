@@ -18,7 +18,7 @@ function supports_affine_relaxation(integrator)
     supports(integrator, Subgradient{Upper}())
 end
 
-function EAGO.presolve_global!(t::DynamicExt, m::EAGO.Optimizer)
+function EAGO.presolve_global!(t::DynamicExt{T}, m::EAGO.Optimizer) where T
 
     EAGO.presolve_global!(EAGO.DefaultExt(), m)
 

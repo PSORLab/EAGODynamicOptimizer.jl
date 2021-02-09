@@ -27,6 +27,7 @@ export DynamicExt, EAGODynamicModel, add_supported_objective!
 include("global/state_vector.jl")
 include("global/subroutines.jl")
 include("global/model.jl")
+include("semiinfinite/sip_extension.jl")
 
 
 end # module
