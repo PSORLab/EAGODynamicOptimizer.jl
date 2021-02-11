@@ -82,6 +82,8 @@ function DynamicExt(integrator)
     return DynamicExt(integrator, np, nx, nt, zero(Interval{Float64}))
 end
 
+Base.eltype(DynamicExt{T}) where T = T
+
 function add_supported_objective!(t::Model, obj)
     ext_type = get_optimizer_attribute(t, "ext_type")
     ext_type.obj = SupportedFunction(obj, Float64[])

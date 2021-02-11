@@ -15,6 +15,12 @@ mutable struct SIPDynamicExt{T} <: EAGO.ExtensionType
     llp_ext::DynamicExt{T}
     bnd_ext::DynamicExt{T}
 end
+function SIPDynamicExt(integrator)
+    llp_ext = DynamicExt(integrator)
+    bnd_ext = DynamicExt(integrator)
+    return SIPDynamicExt{eltype(llp_ext)}(llp_ext, bnd_ext)
+end
+
 function get_ext(m::SIPDynamicExt{T}, s::S) where {T, S <: Union{LowerLevel1,LowerLevel2,LowerLevel3}}
     get_ext.llp
 end
