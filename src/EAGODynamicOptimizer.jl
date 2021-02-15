@@ -19,7 +19,8 @@ using MathOptInterface, DocStringExtensions,
 @reexport using EAGO
 
 import EAGO: preprocess!, postprocess!, lower_problem!,
-             upper_problem!, cut_condition, ExtensionType
+             upper_problem!, cut_condition, ExtensionType,
+             build_model, sip_llp!, sip_bnd!
 
 import Base: getindex, setindex!
 

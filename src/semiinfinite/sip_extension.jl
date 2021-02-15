@@ -22,29 +22,30 @@ function SIPDynamicExt(integrator)
 end
 
 function get_ext(m::SIPDynamicExt{T}, s::S) where {T, S <: Union{LowerLevel1,LowerLevel2,LowerLevel3}}
-    get_ext.llp
+    m.llp
 end
 function get_ext(m::SIPDynamicExt{T}, s::S) where {T, S <: Union{LowerProblem,UpperProblem,ResProblem}}
-    get_ext.bnd_ext
+    m.bnd_ext
 end
 
-function build_model(t::SIPDynamicExt{T}, a::A, s::S, p::SIPProblem) where {T, A <: AbstractSIPAlgo, S <: AbstractSubproblemType}
-    model, v = EAGODynamicModel(get_ext(t,s), EAGO.Optimizer)
-    for (k,v) in get_sip_kwargs(s,p)
+function EAGO.build_model(t::SIPDynamicExt{T}, a::A, s::S, p::SIPProblem) where {T, A <: AbstractSIPAlgo, S <: AbstractSubproblemType}
+    model, v = EAGODynamicModel(get_ext(t,s))
+    for (k,v) in EAGO.get_sip_kwargs(s,p)
         MOI.set(model, MOI.RawParameter(String(k)), v)
     end
+    vL, vU, nv = EAGO.get_bnds(s,p)
     @variable(model, vL[i] <= v[i=1:nv] <= vU[i])
     return model, v
 end
 
-function sip_llp!(t::SIPDynamicExt{T}, alg::A, s::S, result::SIPResult,
-                  sr::SIPSubResult, prob::SIPProblem, cb::SIPCallback,
-                  i::Int64, tol::Float64 = -Inf) where {T, A <: AbstractSIPAlgo, S <: AbstractSubproblemType}
+function EAGO.sip_llp!(t::SIPDynamicExt{T}, alg::A, s::S, result::SIPResult,
+                       sr::SIPSubResult, prob::SIPProblem, cb::SIPCallback,
+                       i::Int64, tol::Float64 = -Inf) where {T, A <: AbstractSIPAlgo, S <: AbstractSubproblemType}
     m, p = build_model(t, alg, s, prob)
-    set_tolerance!(t, alg, s, m, sr, i)
+    EAGO.set_tolerance!(t, alg, s, m, sr, i)
 
     # define the objective
-    xbar = get_xbar(t, alg, s, sr)
+    xbar = EAGO.get_xbar(t, alg, s, sr)
     add_supported_objective!(m, (y, p) -> -cb.gSIP[i](y, xbar, p))
 
     # optimize model and check status
@@ -55,22 +56,22 @@ function sip_llp!(t::SIPDynamicExt{T}, alg::A, s::S, result::SIPResult,
 
     # fill buffer with subproblem result info
     psol = JuMP.value.(p)
-    load!(s, sr, feas, -JuMP.objective_value(m), -JuMP.objective_bound(m), psol)
+    EAGO.load!(s, sr, feas, -JuMP.objective_value(m), -JuMP.objective_bound(m), psol)
     result.solution_time += MOI.get(m, MOI.SolveTime())
 
     return nothing
 end
 
-function sip_bnd!(t::SIPDynamicExt{T}, alg::A, s::S, sr::SIPSubResult, result::SIPResult,
-                  prob::SIPProblem, cb::SIPCallback) where {T, A <: AbstractSIPAlgo,
-                                                            S <: AbstractSubproblemType}
+function EAGO.sip_bnd!(t::SIPDynamicExt{T}, alg::A, s::S, sr::SIPSubResult, result::SIPResult,
+                       prob::SIPProblem, cb::SIPCallback) where {T, A <: AbstractSIPAlgo,
+                                                                 S <: AbstractSubproblemType}
 
     # create JuMP model
     m, x = build_model(t, alg, s, prob)
 
     for i = 1:prob.nSIP
-        ϵ_g = get_eps(s, sr, i)
-        disc_set = get_disc_set(t, alg, s, sr, i)
+        ϵ_g = EAGO.get_eps(s, sr, i)
+        disc_set = EAGO.get_disc_set(t, alg, s, sr, i)
         for j = 1:length(disc_set)
             pbar = disc_set[j]
             add_supported_constraint!(m, (y, x) -> cb.gSIP[i](y, x, pbar) + ϵ_g)
@@ -84,10 +85,10 @@ function sip_bnd!(t::SIPDynamicExt{T}, alg::A, s::S, sr::SIPSubResult, result::S
     JuMP.optimize!(m)
     t_status = JuMP.termination_status(m)
     r_status = JuMP.primal_status(m)
-    feas = bnd_check(prob.local_solver, t_status, r_status)
+    feas = EAGO.bnd_check(prob.local_solver, t_status, r_status)
 
     # fill buffer with subproblem result info
-    load!(s, sr, feas, JuMP.objective_value(m), JuMP.objective_bound(m), JuMP.value.(x))
+    EAGO.load!(s, sr, feas, JuMP.objective_value(m), JuMP.objective_bound(m), JuMP.value.(x))
     result.solution_time += MOI.get(m, MOI.SolveTime())
 
     return nothing
