@@ -29,12 +29,14 @@ function get_ext(m::SIPDynamicExt{T}, s::S) where {T, S <: Union{LowerProblem,Up
 end
 
 function EAGO.build_model(t::SIPDynamicExt{T}, a::A, s::S, p::SIPProblem) where {T, A <: AbstractSIPAlgo, S <: AbstractSubproblemType}
-    model, v = EAGODynamicModel(get_ext(t,s))
+    vL, vU, nv = EAGO.get_bnds(s,p)
+    ext = get_ext(t,s)
+    DBB.setall!(ext.integrator, DBB.ParameterBound{Lower}(), vL)
+    DBB.setall!(ext.integrator, DBB.ParameterBound{Upper}(), vU)
+    model, v = EAGODynamicModel(ext)
     for (k,v) in EAGO.get_sip_kwargs(s,p)
         MOI.set(model, MOI.RawParameter(String(k)), v)
     end
-    vL, vU, nv = EAGO.get_bnds(s,p)
-    @variable(model, vL[i] <= v[i=1:nv] <= vU[i])
     return model, v
 end
 
