@@ -39,7 +39,7 @@ end
 
 function sip_llp!(t::SIPDynamicExt{T}, alg::A, s::S, result::SIPResult,
                   sr::SIPSubResult, prob::SIPProblem, cb::SIPCallback,
-                  i::Int64, tol::Float64 = -Inf) where T
+                  i::Int64, tol::Float64 = -Inf) where {T, A <: AbstractSIPAlgo, S <: AbstractSubproblemType}
     m, p = build_model(t, alg, s, prob)
     set_tolerance!(t, alg, s, m, sr, i)
 

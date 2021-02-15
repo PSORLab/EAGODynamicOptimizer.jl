@@ -67,7 +67,7 @@ function DynamicExt(integrator, np::Int, nx::Int, nt::Int, ::T) where T
     end
     lower_storage = LowerStorage{T}()
     lower_storage.p_set = zeros(T,np)
-    DynamicExt{T}(integrator, obj, np, nx, nt, p_val, p_intv, x_val,
+    DynamicExt{T}(integrator, obj, cons, np, nx, nt, p_val, p_intv, x_val,
                   x_intv, x_traj, obj_val, lo, hi, cv, cc, cv_grad, cc_grad,
                   lower_storage)
 end
@@ -82,7 +82,7 @@ function DynamicExt(integrator)
     return DynamicExt(integrator, np, nx, nt, zero(Interval{Float64}))
 end
 
-Base.eltype(DynamicExt{T}) where T = T
+Base.eltype(::DynamicExt{T}) where T = T
 
 function add_supported_objective!(t::Model, obj)
     ext_type = get_optimizer_attribute(t, "ext_type")

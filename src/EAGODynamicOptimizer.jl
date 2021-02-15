@@ -13,7 +13,11 @@
 
 module EAGODynamicOptimizer
 
-using MathOptInterface, DocStringExtensions, EAGO, DynamicBoundsBase, JuMP
+using MathOptInterface, DocStringExtensions,
+      DynamicBoundsBase, JuMP, Reexport
+
+@reexport using EAGO
+
 import EAGO: preprocess!, postprocess!, lower_problem!,
              upper_problem!, cut_condition, ExtensionType
 
@@ -22,7 +26,8 @@ import Base: getindex, setindex!
 const MOI = MathOptInterface
 const DBB = DynamicBoundsBase
 
-export DynamicExt, EAGODynamicModel, add_supported_objective!
+export DynamicExt, EAGODynamicModel, SIPDynamicExt,
+       add_supported_objective!, add_supported_constraint!
 
 include("global/state_vector.jl")
 include("global/global_extension.jl")
