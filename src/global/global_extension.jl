@@ -12,8 +12,15 @@ struct SupportedFunction
     f
     n::Int
     support::Vector{Float64}
+    params::Vector{Float64}
+    has_params::Bool
 end
-SupportedFunction(f, support::Vector{Float64}) = SupportedFunction(f, 1, support)
+function SupportedFunction(f, support::Vector{Float64})
+    return SupportedFunction(f, 1, support, Float64[], false)
+end
+function SupportedFunction(f, support::Vector{Float64}, params::Vector{Float64})
+    return SupportedFunction(f, 1, support, params, true)
+end
 (d::SupportedFunction)(x, p) = d.f(x, p)
 
 mutable struct DynamicExt{T} <: EAGO.ExtensionType
@@ -91,9 +98,23 @@ function add_supported_objective!(t::Model, obj)
     return nothing
 end
 
+function add_supported_objective!(t::Model, params::Vector{Float64}, obj)
+    ext_type = get_optimizer_attribute(t, "ext_type")
+    ext_type.obj = SupportedFunction(obj, Float64[], params)
+    set_optimizer_attribute(t, "ext_type", ext_type)
+    return nothing
+end
+
 function add_supported_constraint!(t::Model, cons)
     ext_type = get_optimizer_attribute(t, "ext_type")
     push!(ext_type.cons, SupportedFunction(cons, Float64[]))
+    set_optimizer_attribute(t, "ext_type", ext_type)
+    return nothing
+end
+
+function add_supported_constraint!(t::Model, params::Vector{Float64}, cons)
+    ext_type = get_optimizer_attribute(t, "ext_type")
+    push!(ext_type.cons, SupportedFunction(cons, Float64[], params))
     set_optimizer_attribute(t, "ext_type", ext_type)
     return nothing
 end
