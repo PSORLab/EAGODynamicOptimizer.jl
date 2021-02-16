@@ -11,14 +11,17 @@
 # Defines the SIPDynamicExt and extends EAGO SIP subroutines.
 #############################################################################
 
-mutable struct SIPDynamicExt{T} <: EAGO.ExtensionType
+mutable struct SIPDynamicExt{P,T} <: EAGO.ExtensionType
+    prob::P
+    temp_prob::P
+    integrator_factory
     llp_ext::DynamicExt{T}
     bnd_ext::DynamicExt{T}
 end
-function SIPDynamicExt(integrator)
+function SIPDynamicExt(integrator, prob)
     llp_ext = DynamicExt(integrator)
     bnd_ext = DynamicExt(integrator)
-    return SIPDynamicExt{eltype(llp_ext)}(llp_ext, bnd_ext)
+    return SIPDynamicExt{eltype(prob),eltype(llp_ext)}(llp_ext, bnd_ext, prob)
 end
 
 function get_ext(m::SIPDynamicExt{T}, s::S) where {T, S <: Union{LowerLevel1,LowerLevel2,LowerLevel3}}

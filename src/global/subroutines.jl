@@ -194,12 +194,45 @@ function EAGO.lower_problem!(q::DynamicExt, opt::EAGO.Optimizer)
     return nothing
 end
 
-function EAGO.upper_problem!(q::DynamicExt, opt::EAGO.Optimizer)
+function evaluate_dynamics!(t, param, p)
+    DBB.setall!(t.integrator, DBB.ConstantParameterValue(), param)
+    if t.p_val != p
+        integrate!(t.integrator)
+        for i = 1:t.nt
+            support_time = t.obj.support[i]
+            get(t.x_val[i], t.integrator, DBB.Value(support_time))
+            t.x_traj.v[i] .= t.x_val[i]
+        end
+        t.p_val .= p
+    end
+    return nothing
+end
 
+const DYNAMIC_TAG = :DynamicTag
+
+function obj_wrap(t, p, param)
+    evaluate_dynamics!(t, param, p)
+    t.obj_val = t.obj.f(t.x_traj, t.p_val)
+    return t.obj_val
+end
+
+function obj_grad_wrap(t, param, out, p)
+    evaluate_dynamics!(t, param, p)
+    t.p_dual = p
+    for i = 1:t.nt
+        support_time = t.obj.support[i]
+        get(t.x_val[i], t.integrator, DBB.Value(support_time))
+        t.x_traj.dual[i] .= t.x_val[i]
+    end
+    obj_dual_val = t.obj.f(t.x_traj, t.p_val)
+    return t.obj_val
+end
+
+function upper_problem_obj_only!(q::DynamicExt, opt::EAGO.Optimizer)
     t = opt.ext_type
 
     # get all at particular points???
-    DBB.set!(t.integrator, DBB.LocalSensitivityOn(), false)
+    DBB.set!(t.integrator, DBB.LocalSensitivityOn(), true)
 
     integrate!(t.integrator)
     getall!(t.p_val, t.integrator, DBB.ParameterValue())
@@ -213,6 +246,57 @@ function EAGO.upper_problem!(q::DynamicExt, opt::EAGO.Optimizer)
     opt._upper_feasibility = true
     @__dot__ opt._upper_solution = t.p_val
 
+    return nothing
+end
+
+function EAGO.upper_problem!(q::DynamicExt, opt::EAGO.Optimizer)
+    if isempty(q.cons)
+        upper_problem_obj_only!(q, opt)
+    else
+        np = t.np
+
+        model = Model(Ipopt.Optimizer)
+
+        @variable(model, q.pL[i] <= p[i=1:nv] <= q.pU[i])
+
+        # define the objective
+        JuMP.register(model, :obj, np, (p...) -> obj_wrap(q, params, p...),
+                                       (out, p...) -> ∇obj_wrap(q, params, out, p...))
+        if isone(prob.np)
+            nl_obj = :(obj($(p[1])))
+        else
+            nl_obj = Expr(:call)
+            push!(nl_obj.args, :obj)
+            for i in 1:prob.np
+                push!(nl_obj.args, p[i])
+            end
+        end
+        set_NL_objective(m, MOI.MIN_SENSE, nl_obj)
+
+        for (cons, i) in q.cons
+            cons_udf_sym = Symbol("cons_udf_$i")
+            JuMP.register(model, cons_udf_sym, np,
+                                 (p...) -> cons_wrap(q, params, i, p...),
+                                 (out, p...) -> ∇cons_wrap(q, params, i, out, p...))
+
+            gic = Expr(:call)
+            push!(gic.args, cons_udf_sym)
+            for i in 1:prob.nx
+                push!(gic.args, p[i])
+            end
+            JuMP.add_NL_constraint(m, :($gic <= 0))
+
+        end
+
+        JuMP.optimize!(m)
+        t_status = JuMP.termination_status(m)
+        r_status = JuMP.primal_status(m)
+        feas = bnd_check(prob.local_solver, t_status, r_status)
+
+        opt._upper_objective_value = feas ? objective_value(m) : Inf
+        opt._upper_feasibility = feas
+        @__dot__ opt._upper_solution = value(p)
+    end
     return nothing
 end
 
