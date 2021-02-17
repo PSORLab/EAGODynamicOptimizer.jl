@@ -194,16 +194,26 @@ function EAGO.lower_problem!(q::DynamicExt, opt::EAGO.Optimizer)
     return nothing
 end
 
-function set_dual_trajectory!(t) where NP
-    DBB.getall!(t.∇obj_vals, t.integrator, DBB.Gradient{Nominal}())
-    for i = 1:nx
-        out .= Partials{Float64,NP}()
+function set_dual_trajectory!{NP}(t::DynamicExt) where NP
+    DBB.getall!(t.gradient_temp, t.integrator, DBB.Gradient{Nominal}())
+    temp = zeros(np)
+    out = zeros(Partials{Float64,NP},nx)
+    for i = 1:nt
+        for k = 1:nx
+            for j = 1:np
+                temp[j] = t.gradient_temp[j][i,k]
+            end
+            out[k] = Partials{Float64,NP}(temp)
+        end
+        t.upper_storage.x_set_traj.v[i] .= out
     end
+    return nothing
 end
 
-function evaluate_dynamics!(t, param, p)
+function evaluate_dynamics(t, param, p)
     DBB.setall!(t.integrator, DBB.ConstantParameterValue(), param)
-    if t.p_val != p
+    new_point = t.p_val != p
+    if new_point
         integrate!(t.integrator)
         for i = 1:t.nt
             support_time = t.obj.support[i]
@@ -214,32 +224,32 @@ function evaluate_dynamics!(t, param, p)
         @__dot__ t.upper_storage.p_set = Dual{TAG,Float64,NP}(p, seeds)
         t.p_val .= p
     end
-    return nothing
+    return new_point
 end
 
-function obj_wrap(t, p, param)
-    evaluate_dynamics!(t, param, p)
+function obj_wrap(t::DynamicExt, param, p)
+    new_eval = evaluate_dynamics(t, param, p)
     t.obj_val = t.obj.f(t.x_traj, t.p_val)
     return t.obj_val
 end
 
-function cons_wrap(t, params, i, p)
-    evaluate_dynamics!(t, param, p)
+function cons_wrap(t::DynamicExt, params, i, p)
+    new_eval = evaluate_dynamics(t, param, p)
     t.cons_val[i] = t.cons[i].f(t.x_traj, t.p_val)
     return t.cons_val[i]
 end
 
-function ∇obj_wrap!(t, param, out, p)
-    evaluate_dynamics!(t, param, p)
-    set_dual_trajectory!(t)
+function ∇obj_wrap!{NP}(t::DynamicExt, param, out, p) where NP
+    new_eval = evaluate_dynamics(t, param, p)
+    set_dual_trajectory!{NP}(t)
     obj_dual = t.obj.f(t.upper_storage.x_set_traj, t.upper_storage.p_set)
     out .= partials(obj_dual)
     return nothing
 end
 
-function ∇cons_wrap!(t, params, out, i, p)
-    evaluate_dynamics!(t, param, p)
-    set_dual_trajectory!(t)
+function ∇cons_wrap!{NP}(t::DynamicExt, param, out, i, p) where NP
+    new_eval = evaluate_dynamics(t, param, p)
+    set_dual_trajectory!{NP}(t)
     cons_dual = t.cons[i].f(t.upper_storage.x_set_traj, t.upper_storage.p_set)
     out .= partials(cons_dual)
     return nothing
@@ -275,7 +285,7 @@ function EAGO.upper_problem!(q::DynamicExt, opt::EAGO.Optimizer)
 
     # define the objective
     JuMP.register(model, :obj, np, (p...) -> obj_wrap(q, params, p...),
-                                   (out, p...) -> ∇obj_wrap!(q, params, out, p...))
+                                   (out, p...) -> ∇obj_wrap!{np}(q, params, out, p...))
     if isone(prob.np)
         nl_obj = :(obj($(p[1])))
     else
@@ -291,7 +301,7 @@ function EAGO.upper_problem!(q::DynamicExt, opt::EAGO.Optimizer)
         cons_udf_sym = Symbol("cons_udf_$i")
         JuMP.register(model, cons_udf_sym, np,
                              (p...) -> cons_wrap(q, params, i, p...),
-                             (out, p...) -> ∇cons_wrap!(q, params, i, out, p...))
+                             (out, p...) -> ∇cons_wrap!{np}(q, params, i, out, p...))
 
         gic = Expr(:call)
         push!(gic.args, cons_udf_sym)
