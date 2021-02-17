@@ -1,11 +1,11 @@
-mutable struct LowerStorage{T}
+mutable struct SubStorage{T}
     p_set::Vector{T}
     x_set::Matrix{T}
     x_set_traj::Trajectory{T}
     obj_set::T
 end
-function LowerStorage{T}() where T
-    LowerStorage{T}(zeros(T,1), zeros(T,1,1), Trajectory{T}(), zero(T))
+function SubStorage{T}() where T
+    SubStorage{T}(zeros(T,1), zeros(T,1,1), Trajectory{T}(), zero(T))
 end
 
 struct SupportedFunction
@@ -23,7 +23,9 @@ function SupportedFunction(f, support::Vector{Float64}, params::Vector{Float64})
 end
 (d::SupportedFunction)(x, p) = d.f(x, p)
 
-mutable struct DynamicExt{T} <: EAGO.ExtensionType
+const TAG = :DynamicTag
+
+mutable struct DynamicExt{S,T} <: EAGO.ExtensionType
     integrator
     obj::Union{SupportedFunction,Nothing}
     cons::Vector{SupportedFunction}
@@ -42,10 +44,11 @@ mutable struct DynamicExt{T} <: EAGO.ExtensionType
     cc::Vector{Vector{Float64}}
     cv_grad::Vector{Matrix{Float64}}
     cc_grad::Vector{Matrix{Float64}}
-    lower_storage::LowerStorage{T}
+    lower_storage::SubStorage{S}
+    upper_storage::SubStorage{T}
 end
 
-function DynamicExt(integrator, np::Int, nx::Int, nt::Int, ::T) where T
+function DynamicExt(integrator, np::Int, nx::Int, nt::Int, ::S) where S
     obj = nothing
     cons = SupportedFunction[]
     p_val = zeros(np)
@@ -72,11 +75,13 @@ function DynamicExt(integrator, np::Int, nx::Int, nt::Int, ::T) where T
         push!(cv_grad, zeros(nx, np))
         push!(cc_grad, zeros(nx, np))
     end
-    lower_storage = LowerStorage{T}()
-    lower_storage.p_set = zeros(T,np)
-    DynamicExt{T}(integrator, obj, cons, np, nx, nt, p_val, p_intv, x_val,
+    lower_storage = LowerStorage{S}()
+    lower_storage.p_set = zeros(S,np)
+    upper_storage = LowerStorage{Dual{TAG,Float64,np}}()
+    upper_storage.p_set = zeros(Dual{TAG,Float64,np},np)
+    DynamicExt{S,T}(integrator, obj, cons, np, nx, nt, p_val, p_intv, x_val,
                   x_intv, x_traj, obj_val, lo, hi, cv, cc, cv_grad, cc_grad,
-                  lower_storage)
+                  lower_storage,upper_storage)
 end
 
 function DynamicExt(integrator)

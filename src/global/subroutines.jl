@@ -194,6 +194,13 @@ function EAGO.lower_problem!(q::DynamicExt, opt::EAGO.Optimizer)
     return nothing
 end
 
+function set_dual_trajectory!(t) where NP
+    DBB.getall!(t.∇obj_vals, t.integrator, DBB.Gradient{Nominal}())
+    for i = 1:nx
+        out .= Partials{Float64,NP}()
+    end
+end
+
 function evaluate_dynamics!(t, param, p)
     DBB.setall!(t.integrator, DBB.ConstantParameterValue(), param)
     if t.p_val != p
@@ -203,28 +210,16 @@ function evaluate_dynamics!(t, param, p)
             get(t.x_val[i], t.integrator, DBB.Value(support_time))
             t.x_traj.v[i] .= t.x_val[i]
         end
+        seeds = construct_seeds(Partials{NP,Float64})
+        @__dot__ t.upper_storage.p_set = Dual{TAG,Float64,NP}(p, seeds)
         t.p_val .= p
     end
     return nothing
 end
 
-const DYNAMIC_TAG = :DynamicTag
-
 function obj_wrap(t, p, param)
     evaluate_dynamics!(t, param, p)
     t.obj_val = t.obj.f(t.x_traj, t.p_val)
-    return t.obj_val
-end
-
-function ∇obj_wrap(t, param, out, p)
-    evaluate_dynamics!(t, param, p)
-    t.p_dual = p # TODO
-    for i = 1:t.nt
-        support_time = t.obj.support[i]
-        get(t.x_val[i], t.integrator, DBB.Value(support_time))
-        t.x_traj.dual[i] .= t.x_val[i]
-    end
-    obj_dual_val = t.obj.f(t.x_traj, t.p_val)
     return t.obj_val
 end
 
@@ -234,15 +229,20 @@ function cons_wrap(t, params, i, p)
     return t.cons_val[i]
 end
 
-function ∇cons_wrap(t, params, out, i, p)
-    t.p_dual = p # TODO
-    for i = 1:t.nt
-        support_time = t.obj.support[i]
-        get(t.x_val[i], t.integrator, DBB.Value(support_time))
-        t.x_traj.dual[i] .= t.x_val[i]
-    end
-    t.cons_dual[i] = t.cons[i].f(t.x_traj, t.p_val)
-    return #TODO
+function ∇obj_wrap!(t, param, out, p)
+    evaluate_dynamics!(t, param, p)
+    set_dual_trajectory!(t)
+    obj_dual = t.obj.f(t.upper_storage.x_set_traj, t.upper_storage.p_set)
+    out .= partials(obj_dual)
+    return nothing
+end
+
+function ∇cons_wrap!(t, params, out, i, p)
+    evaluate_dynamics!(t, param, p)
+    set_dual_trajectory!(t)
+    cons_dual = t.cons[i].f(t.upper_storage.x_set_traj, t.upper_storage.p_set)
+    out .= partials(cons_dual)
+    return nothing
 end
 
 function upper_problem_obj_only!(q::DynamicExt, opt::EAGO.Optimizer)
@@ -267,53 +267,48 @@ function upper_problem_obj_only!(q::DynamicExt, opt::EAGO.Optimizer)
 end
 
 function EAGO.upper_problem!(q::DynamicExt, opt::EAGO.Optimizer)
-    if isempty(q.cons)
-        upper_problem_obj_only!(q, opt)
+    isempty(q.cons) && return upper_problem_obj_only!(q, opt)
+
+    np = q.np
+    model = Model(Ipopt.Optimizer)
+    @variable(model, q.pL[i] <= p[i=1:q.np] <= q.pU[i])
+
+    # define the objective
+    JuMP.register(model, :obj, np, (p...) -> obj_wrap(q, params, p...),
+                                   (out, p...) -> ∇obj_wrap!(q, params, out, p...))
+    if isone(prob.np)
+        nl_obj = :(obj($(p[1])))
     else
-        np = t.np
-
-        model = Model(Ipopt.Optimizer)
-
-        @variable(model, q.pL[i] <= p[i=1:nv] <= q.pU[i])
-
-        # define the objective
-        JuMP.register(model, :obj, np, (p...) -> obj_wrap(q, params, p...),
-                                       (out, p...) -> ∇obj_wrap(q, params, out, p...))
-        if isone(prob.np)
-            nl_obj = :(obj($(p[1])))
-        else
-            nl_obj = Expr(:call)
-            push!(nl_obj.args, :obj)
-            for i in 1:prob.np
-                push!(nl_obj.args, p[i])
-            end
+        nl_obj = Expr(:call)
+        push!(nl_obj.args, :obj)
+        for i in 1:prob.np
+            push!(nl_obj.args, p[i])
         end
-        set_NL_objective(m, MOI.MIN_SENSE, nl_obj)
-
-        for (cons, i) in q.cons
-            cons_udf_sym = Symbol("cons_udf_$i")
-            JuMP.register(model, cons_udf_sym, np,
-                                 (p...) -> cons_wrap(q, params, i, p...),
-                                 (out, p...) -> ∇cons_wrap(q, params, i, out, p...))
-
-            gic = Expr(:call)
-            push!(gic.args, cons_udf_sym)
-            for i in 1:prob.nx
-                push!(gic.args, p[i])
-            end
-            JuMP.add_NL_constraint(m, :($gic <= 0))
-
-        end
-
-        JuMP.optimize!(m)
-        t_status = JuMP.termination_status(m)
-        r_status = JuMP.primal_status(m)
-        feas = EAGO.is_feasible(t_status, r_status)
-
-        opt._upper_objective_value = feas ? objective_value(m) : Inf
-        opt._upper_feasibility = feas
-        @__dot__ opt._upper_solution = value(p)
     end
+    set_NL_objective(m, MOI.MIN_SENSE, nl_obj)
+
+    for (cons, i) in q.cons
+        cons_udf_sym = Symbol("cons_udf_$i")
+        JuMP.register(model, cons_udf_sym, np,
+                             (p...) -> cons_wrap(q, params, i, p...),
+                             (out, p...) -> ∇cons_wrap!(q, params, i, out, p...))
+
+        gic = Expr(:call)
+        push!(gic.args, cons_udf_sym)
+        for i in 1:prob.nx
+            push!(gic.args, p[i])
+        end
+        JuMP.add_NL_constraint(m, :($gic <= 0))
+    end
+
+    JuMP.optimize!(m)
+    t_status = JuMP.termination_status(m)
+    r_status = JuMP.primal_status(m)
+    feas = EAGO.is_feasible(t_status, r_status)
+
+    opt._upper_objective_value = feas ? objective_value(m) : Inf
+    opt._upper_feasibility = feas
+    @__dot__ opt._upper_solution = value(p)
     return nothing
 end
 
