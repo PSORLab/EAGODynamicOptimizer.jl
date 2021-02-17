@@ -216,9 +216,9 @@ function obj_wrap(t, p, param)
     return t.obj_val
 end
 
-function obj_grad_wrap(t, param, out, p)
+function ∇obj_wrap(t, param, out, p)
     evaluate_dynamics!(t, param, p)
-    t.p_dual = p
+    t.p_dual = p # TODO
     for i = 1:t.nt
         support_time = t.obj.support[i]
         get(t.x_val[i], t.integrator, DBB.Value(support_time))
@@ -226,6 +226,23 @@ function obj_grad_wrap(t, param, out, p)
     end
     obj_dual_val = t.obj.f(t.x_traj, t.p_val)
     return t.obj_val
+end
+
+function cons_wrap(t, params, i, p)
+    evaluate_dynamics!(t, param, p)
+    t.cons_val[i] = t.cons[i].f(t.x_traj, t.p_val)
+    return t.cons_val[i]
+end
+
+function ∇cons_wrap(t, params, out, i, p)
+    t.p_dual = p # TODO
+    for i = 1:t.nt
+        support_time = t.obj.support[i]
+        get(t.x_val[i], t.integrator, DBB.Value(support_time))
+        t.x_traj.dual[i] .= t.x_val[i]
+    end
+    t.cons_dual[i] = t.cons[i].f(t.x_traj, t.p_val)
+    return #TODO
 end
 
 function upper_problem_obj_only!(q::DynamicExt, opt::EAGO.Optimizer)
@@ -291,7 +308,7 @@ function EAGO.upper_problem!(q::DynamicExt, opt::EAGO.Optimizer)
         JuMP.optimize!(m)
         t_status = JuMP.termination_status(m)
         r_status = JuMP.primal_status(m)
-        feas = bnd_check(prob.local_solver, t_status, r_status)
+        feas = EAGO.is_feasible(t_status, r_status)
 
         opt._upper_objective_value = feas ? objective_value(m) : Inf
         opt._upper_feasibility = feas
