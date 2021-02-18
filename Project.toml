@@ -14,7 +14,7 @@ Reexport = "189a3867-3050-52da-a836-e630ba90ab69"
 
 [compat]
 DocStringExtensions = "~0.8"
-DynamicBoundsBase = "~0.5"
+DynamicBoundsBase = "0.5.2"
 EAGO = "~0.6"
 JuMP = "0.21.2, 0.21.3, 0.21.4, 0.21.5, 0.21.6"
 MathOptInterface = "0.8.1, 0.8.2, 0.8.3, 0.8.4, ~0.9"
