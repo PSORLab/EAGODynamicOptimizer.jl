@@ -285,7 +285,7 @@ function upper_problem_obj_only!(q::DynamicExt, opt::EAGO.Optimizer)
     t = opt.ext_type
 
     # get all at particular points???
-    DBB.set!(t.integrator, DBB.LocalSensitivityOn(), true)
+    DBB.set!(t.integrator, DBB.LocalSensitivityOn(), false)
 
     integrate!(t.integrator)
     getall!(t.p_val, t.integrator, DBB.ParameterValue())
@@ -308,6 +308,8 @@ function EAGO.upper_problem!(q::DynamicExt, opt::EAGO.Optimizer)
     np = q.np
     model = Model(Ipopt.Optimizer)
     @variable(model, q.pL[i] <= p[i=1:q.np] <= q.pU[i])
+
+    DBB.set!(t.integrator, DBB.LocalSensitivityOn(), true)
 
     # define the objective
     JuMP.register(model, :obj, np, (p...) -> obj_wrap(q, params, p...),

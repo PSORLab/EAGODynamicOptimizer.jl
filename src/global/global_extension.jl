@@ -86,7 +86,7 @@ function DynamicExt(integrator, np::Int, nx::Int, nt::Int, ::S) where S
 end
 
 function DynamicExt(integrator)
-    np = length(DBB.getall(integrator, DBB.ConstantParameterValue()))
+    np = DBB.get(integrator, DBB.ParameterNumber())
     nx = DBB.get(integrator, DBB.StateNumber())
     nt = DBB.get(integrator, DBB.SupportNumber())
     if supports_affine_relaxation(integrator)
