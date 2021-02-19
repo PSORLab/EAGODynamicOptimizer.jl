@@ -244,7 +244,7 @@ function set_dual_trajectory!(::Val{NP}, t::DynamicExt) where NP
     return nothing
 end
 
-function evaluate_dynamics(t, param, p)
+function evaluate_dynamics(::Val{NP}, t, param, p) where NP
     DBB.setall!(t.integrator, DBB.ConstantParameterValue(), param)
     new_point = t.p_val != p
     if new_point
@@ -255,26 +255,32 @@ function evaluate_dynamics(t, param, p)
             t.x_traj.v[i] .= t.x_val[i]
         end
         seeds = construct_seeds(Partials{NP,Float64})
+        @show length(t.upper_storage.p_set)
+        @show length(p)
+        @show length(seeds)
         @__dot__ t.upper_storage.p_set = Dual{TAG,Float64,NP}(p, seeds)
         t.p_val .= p
     end
     return new_point
 end
 
-function obj_wrap(t::DynamicExt, p)
-    new_eval = evaluate_dynamics(t, t.obj.params, p)
+function obj_wrap(::Val{NP}, t::DynamicExt, p) where NP
+    @show "obj_wrap"
+    new_eval = evaluate_dynamics(Val{NP}(),t, t.obj.params, p)
     t.obj_val = t.obj.f(t.x_traj, t.p_val)
     return t.obj_val
 end
 
-function cons_wrap(t::DynamicExt, params, i, p)
-    new_eval = evaluate_dynamics(t, t.cons[i].params, p)
+function cons_wrap(::Val{NP}, t::DynamicExt, params, i, p) where NP
+    new_eval = evaluate_dynamics(Val{NP}(), t, t.cons[i].params, p)
     t.cons_val[i] = t.cons[i].f(t.x_traj, t.p_val)
     return t.cons_val[i]
 end
 
 function ∇obj_wrap!(::Val{NP}, t::DynamicExt, out, p) where NP
-    new_eval = evaluate_dynamics(t, t.obj.params, p)
+    @show "obj_grad"
+    @show (Val{NP}(), t.obj.params, p)
+    new_eval = evaluate_dynamics(Val{NP}(),t, t.obj.params, p)
     set_dual_trajectory!{NP}(Val{NP}(),t)
     obj_dual = t.obj.f(t.upper_storage.x_set_traj, t.upper_storage.p_set)
     out .= partials(obj_dual)
@@ -282,7 +288,7 @@ function ∇obj_wrap!(::Val{NP}, t::DynamicExt, out, p) where NP
 end
 
 function ∇cons_wrap!(::Val{NP}, t::DynamicExt, param, out, i, p) where NP
-    new_eval = evaluate_dynamics(t, t.cons[i].params, p)
+    new_eval = evaluate_dynamics(Val{NP}(), t, t.cons[i].params, p)
     set_dual_trajectory!(Val{NP}(),t)
     cons_dual = t.cons[i].f(t.upper_storage.x_set_traj, t.upper_storage.p_set)
     out .= partials(cons_dual)
@@ -310,6 +316,11 @@ function upper_problem_obj_only!(q::DynamicExt, opt::EAGO.Optimizer)
     return nothing
 end
 
+function obj_wrap_tester(x)
+    @show x
+    return error("stop here")
+end
+
 function EAGO.upper_problem!(q::DynamicExt, opt::EAGO.Optimizer)
     isempty(q.cons) && return upper_problem_obj_only!(q, opt)
 
@@ -325,12 +336,16 @@ function EAGO.upper_problem!(q::DynamicExt, opt::EAGO.Optimizer)
     DBB.set!(q.integrator, DBB.LocalSensitivityOn(), true)
 
     # define the objective
-    JuMP.register(model, :obj, np, (p...) -> obj_wrap(q, p...),
-                                   (out, p...) -> ∇obj_wrap!(Val{np}(),q,out,p...),
-                                   (out, p...) -> error("Hessian called but is currently disabled."))
     if isone(q.np)
+        JuMP.register(model, :obj, 1, p -> obj_wrap(q, p),
+                                      p -> ∇obj_wrap(q, p),
+                                      p -> error("Hessian called but is currently disabled."))
+
         nl_obj = :(obj($(p[1])))
     else
+        JuMP.register(model, :obj, np, (p...) -> obj_wrap(Val{np}(), q, p),
+                                       (out, p...) -> ∇obj_wrap!(Val{np}(), q, out, p),
+                                       (out, p...) -> error("Hessian called but is currently disabled."))
         nl_obj = Expr(:call)
         push!(nl_obj.args, :obj)
         for i in 1:q.np
@@ -341,17 +356,25 @@ function EAGO.upper_problem!(q::DynamicExt, opt::EAGO.Optimizer)
 
     for (cons, i) in enumerate(q.cons)
         cons_udf_sym = Symbol("cons_udf_$i")
-        JuMP.register(model, cons_udf_sym, np,
-                             (p...) -> cons_wrap(q, i, p...),
-                             (out, p...) -> ∇cons_wrap!(Val{np}(),q,i,out,p...),
-                             (out, p...) -> error("Hessian called but is currently disabled."))
+        if isone(q.np)
+            JuMP.register(model, cons_udf_sym, 1, p -> cons_wrap(q, i, p),
+                                                  p -> ∇cons_wrap(q, i, p),
+                                                  p -> error("Hessian called but is currently disabled."))
 
-        gic = Expr(:call)
-        push!(gic.args, cons_udf_sym)
-        for i in 1:q.np
-            push!(gic.args, p[i])
+            JuMP.add_NL_constraint(model, :(($cons_udf_sym)($(p[1])) <= 0))
+        else
+            JuMP.register(model, cons_udf_sym, np,
+                                 (p...) -> cons_wrap(Val{np}(), q, i, p),
+                                 (out, p...) -> ∇cons_wrap!(Val{np}(),q,i,out,p),
+                                 (out, p...) -> error("Hessian called but is currently disabled."))
+
+            gic = Expr(:call)
+            push!(gic.args, cons_udf_sym)
+            for i in 1:q.np
+                push!(gic.args, p[i])
+            end
+            JuMP.add_NL_constraint(model, :($gic <= 0))
         end
-        JuMP.add_NL_constraint(model, :($gic <= 0))
     end
 
     JuMP.optimize!(model)
