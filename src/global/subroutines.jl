@@ -83,11 +83,13 @@ function EAGO.presolve_global!(t::DynamicExt{T}, m::EAGO.Optimizer) where T
     return nothing
 end
 
-function lower_bound_problem!(::Val{false}, q::DynamicExt, opt::EAGO.Optimizer)
+function lower_bound_problem!(::Val{false}, t::DynamicExt, opt::EAGO.Optimizer)
     # reset box used to evaluate relaxation
     n = opt._current_node
     lvbs = n.lower_variable_bounds
     uvbs = n.upper_variable_bounds
+    integrator = t.integrator
+
     setall!(integrator, ParameterBound{Lower}(), lvbs)
     setall!(integrator, ParameterBound{Upper}(), uvbs)
 
@@ -100,12 +102,12 @@ function lower_bound_problem!(::Val{false}, q::DynamicExt, opt::EAGO.Optimizer)
     # relaxes pODE
     relax!(integrator)
 
-    for i = 1:nt
+    for i = 1:t.nt
         support_time = t.obj.support[i]
         get(t.lo[i], integrator, Bound{Lower}(support_time))
         get(t.hi[i], integrator, Bound{Upper}(support_time))
     end
-    load_intervals!(t.x_intv, t.lo, t.hi, nt)
+    load_intervals!(t.x_intv, t.lo, t.hi, t.nt)
 
     # loads trajectory
     for i = 1:nt
@@ -126,11 +128,13 @@ function lower_bound_problem!(::Val{false}, q::DynamicExt, opt::EAGO.Optimizer)
     return nothing
 end
 
-function lower_bound_problem!(::Val{true}, q::DynamicExt, opt::EAGO.Optimizer)
+function lower_bound_problem!(::Val{true}, t::DynamicExt, opt::EAGO.Optimizer)
     # reset box used to evaluate relaxation
     n = opt._current_node
     lvbs = n.lower_variable_bounds
     uvbs = n.upper_variable_bounds
+    integrator = t.integrator
+
     setall!(integrator, ParameterBound{Lower}(), lvbs)
     setall!(integrator, ParameterBound{Upper}(), uvbs)
 
@@ -138,12 +142,12 @@ function lower_bound_problem!(::Val{true}, q::DynamicExt, opt::EAGO.Optimizer)
     @__dot__ opt._current_xref = 0.5*(lvbs + uvbs)
     setall!(integrator, ParameterValue(), opt._current_xref)
     @__dot__ t.p_intv = Interval(lvbs, uvbs)
-    @__dot__ t.lower_storage.p_set = MC{np,NS}(opt._current_xref, t.p_intv, 1:np)
+    @__dot__ t.lower_storage.p_set = MC{t.np,NS}(opt._current_xref, t.p_intv, 1:t.np)
 
     # relaxes pODE
     relax!(integrator)
 
-    for i = 1:nt
+    for i = 1:t.nt
         support_time = t.obj.support[i]
         get(t.lo[i], integrator, Bound{Lower}(support_time))
         get(t.hi[i], integrator, Bound{Upper}(support_time))
@@ -152,7 +156,7 @@ function lower_bound_problem!(::Val{true}, q::DynamicExt, opt::EAGO.Optimizer)
         get(t.cv_grad[i], integrator, Subgradient{Lower}(support_time))
         get(t.cc_grad[i], integrator, Subgradient{Upper}(support_time))
     end
-    load_intervals!(t.x_intv, t.lo, t.hi, nt)
+    load_intervals!(t.x_intv, t.lo, t.hi, t.nt)
 
     # loads trajectory
     load_trajectory!(t.lower_storage.x_set_traj, t.cv,
@@ -207,16 +211,16 @@ function lower_bound_problem!(::Val{true}, q::DynamicExt, opt::EAGO.Optimizer)
             opt._lower_feasibility = true
         end
     else
-        lower_interval_problem!(q, opt)
+        lower_interval_problem!(t, opt)
     end
     return nothing
 end
 
-function EAGO.lower_problem!(q::DynamicExt, opt::EAGO.Optimizer)
-    lower_bound_problem!(Val(supports_affine_relaxation(q.integrator)), q, opt)
+function EAGO.lower_problem!(t::DynamicExt, opt::EAGO.Optimizer)
+    lower_bound_problem!(Val(supports_affine_relaxation(t.integrator)), t, opt)
 end
 
-function set_dual_trajectory!{NP}(t::DynamicExt) where NP
+function set_dual_trajectory!(::Val{NP}, t::DynamicExt) where NP
     DBB.getall!(t.gradient_temp, t.integrator, DBB.Gradient{Nominal}())
     temp = zeros(np)
     out = zeros(Partials{Float64,NP},nx)
@@ -261,17 +265,17 @@ function cons_wrap(t::DynamicExt, params, i, p)
     return t.cons_val[i]
 end
 
-function ∇obj_wrap!{NP}(t::DynamicExt, param, out, p) where NP
+function ∇obj_wrap!(::Val{NP}, t::DynamicExt, param, out, p) where NP
     new_eval = evaluate_dynamics(t, param, p)
-    set_dual_trajectory!{NP}(t)
+    set_dual_trajectory!{NP}(Val{NP}(),t)
     obj_dual = t.obj.f(t.upper_storage.x_set_traj, t.upper_storage.p_set)
     out .= partials(obj_dual)
     return nothing
 end
 
-function ∇cons_wrap!{NP}(t::DynamicExt, param, out, i, p) where NP
+function ∇cons_wrap!(::Val{NP}, t::DynamicExt, param, out, i, p) where NP
     new_eval = evaluate_dynamics(t, param, p)
-    set_dual_trajectory!{NP}(t)
+    set_dual_trajectory!(Val{NP}(),t)
     cons_dual = t.cons[i].f(t.upper_storage.x_set_traj, t.upper_storage.p_set)
     out .= partials(cons_dual)
     return nothing
@@ -307,7 +311,7 @@ function EAGO.upper_problem!(q::DynamicExt, opt::EAGO.Optimizer)
 
     # define the objective
     JuMP.register(model, :obj, np, (p...) -> obj_wrap(q, params, p...),
-                                   (out, p...) -> ∇obj_wrap!{np}(q, params, out, p...))
+                                   (out, p...) -> ∇obj_wrap!(Val{np}(),q,params,out,p...))
     if isone(prob.np)
         nl_obj = :(obj($(p[1])))
     else
@@ -323,7 +327,7 @@ function EAGO.upper_problem!(q::DynamicExt, opt::EAGO.Optimizer)
         cons_udf_sym = Symbol("cons_udf_$i")
         JuMP.register(model, cons_udf_sym, np,
                              (p...) -> cons_wrap(q, params, i, p...),
-                             (out, p...) -> ∇cons_wrap!{np}(q, params, i, out, p...))
+                             (out, p...) -> ∇cons_wrap!(Val{np}(),q,params,i,out,p...))
 
         gic = Expr(:call)
         push!(gic.args, cons_udf_sym)

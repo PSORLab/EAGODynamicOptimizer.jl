@@ -75,17 +75,18 @@ function DynamicExt(integrator, np::Int, nx::Int, nt::Int, ::S) where S
         push!(cv_grad, zeros(nx, np))
         push!(cc_grad, zeros(nx, np))
     end
-    lower_storage = LowerStorage{S}()
+    lower_storage = SubStorage{S}()
     lower_storage.p_set = zeros(S,np)
-    upper_storage = LowerStorage{Dual{TAG,Float64,np}}()
-    upper_storage.p_set = zeros(Dual{TAG,Float64,np},np)
+    T = Dual{TAG,Float64,np}
+    upper_storage = SubStorage{T}()
+    upper_storage.p_set = zeros(T,np)
     DynamicExt{S,T}(integrator, obj, cons, np, nx, nt, p_val, p_intv, x_val,
                   x_intv, x_traj, obj_val, lo, hi, cv, cc, cv_grad, cc_grad,
                   lower_storage,upper_storage)
 end
 
 function DynamicExt(integrator)
-    np = DBB.get(integrator, DBB.ParameterNumber())
+    np = length(DBB.getall(integrator, DBB.ConstantParameterValue()))
     nx = DBB.get(integrator, DBB.StateNumber())
     nt = DBB.get(integrator, DBB.SupportNumber())
     if supports_affine_relaxation(integrator)
