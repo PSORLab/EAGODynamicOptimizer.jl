@@ -72,6 +72,9 @@ function EAGO.presolve_global!(t::DynamicExt{T}, m::EAGO.Optimizer) where T
             push!(m.ext_type.lower_storage.x_set_traj.v, zeros(Interval{Float64}, nx))
         end
     end
+    for cons in t.cons
+        push!(m.ext_type.cons, SupportedFunction(cons, Float64[], cons.params))
+    end
     for i = 1:nt
         push!(m.ext_type.x_traj.v, zeros(Float64, nx))
     end
@@ -84,6 +87,7 @@ function EAGO.presolve_global!(t::DynamicExt{T}, m::EAGO.Optimizer) where T
 end
 
 function lower_bound_problem!(::Val{false}, t::DynamicExt, opt::EAGO.Optimizer)
+
     # reset box used to evaluate relaxation
     n = opt._current_node
     lvbs = n.lower_variable_bounds
@@ -129,6 +133,7 @@ function lower_bound_problem!(::Val{false}, t::DynamicExt, opt::EAGO.Optimizer)
 end
 
 function lower_bound_problem!(::Val{true}, t::DynamicExt, opt::EAGO.Optimizer)
+
     # reset box used to evaluate relaxation
     n = opt._current_node
     lvbs = n.lower_variable_bounds
@@ -180,14 +185,17 @@ function lower_bound_problem!(::Val{true}, t::DynamicExt, opt::EAGO.Optimizer)
 
     for i = 1:length(t.cons)
         cons_mc = t.cons[i].f(t.lower_storage.x_set_traj, t.lower_storage.p_set)
-        saf_temp_cons = MOI.ScalarAffineFunction{Float64}(zeros(MOI.ScalarAffinetTerm{Float64},t.np), 0.0)
+        sat_vec = MOI.ScalarAffineTerm{Float64}[MOI.ScalarAffineTerm{Float64}(0.0, MOI.VariableIndex(i)) for i = 1:t.np]
+        saf_temp_cons = MOI.ScalarAffineFunction{Float64}(sat_vec, 0.0)
         for j = 1:t.np
             coeff = @inbounds cons_mc.cv_grad[j]
             saf_temp_cons.terms[j] = MOI.ScalarAffineTerm{Float64}(coeff, MOI.VariableIndex(j))
             pv = opt._current_xref[j]
             saf_temp_cons.constant = saf_temp.constant - coeff*pv
         end
-        MOI.add(relaxed_optimizer, SAF, LT(0.0))
+        constant_value = saf_temp_cons.constant
+        saf_temp_cons.constant = 0.0
+        MOI.add_constraint(relaxed_optimizer, saf_temp_cons, MOI.LessThan{Float64}(constant_value))
     end
 
     MOI.optimize!(relaxed_optimizer)
@@ -253,20 +261,20 @@ function evaluate_dynamics(t, param, p)
     return new_point
 end
 
-function obj_wrap(t::DynamicExt, param, p)
-    new_eval = evaluate_dynamics(t, param, p)
+function obj_wrap(t::DynamicExt, p)
+    new_eval = evaluate_dynamics(t, t.obj.params, p)
     t.obj_val = t.obj.f(t.x_traj, t.p_val)
     return t.obj_val
 end
 
 function cons_wrap(t::DynamicExt, params, i, p)
-    new_eval = evaluate_dynamics(t, param, p)
+    new_eval = evaluate_dynamics(t, t.cons[i].params, p)
     t.cons_val[i] = t.cons[i].f(t.x_traj, t.p_val)
     return t.cons_val[i]
 end
 
-function ∇obj_wrap!(::Val{NP}, t::DynamicExt, param, out, p) where NP
-    new_eval = evaluate_dynamics(t, param, p)
+function ∇obj_wrap!(::Val{NP}, t::DynamicExt, out, p) where NP
+    new_eval = evaluate_dynamics(t, t.obj.params, p)
     set_dual_trajectory!{NP}(Val{NP}(),t)
     obj_dual = t.obj.f(t.upper_storage.x_set_traj, t.upper_storage.p_set)
     out .= partials(obj_dual)
@@ -274,7 +282,7 @@ function ∇obj_wrap!(::Val{NP}, t::DynamicExt, param, out, p) where NP
 end
 
 function ∇cons_wrap!(::Val{NP}, t::DynamicExt, param, out, i, p) where NP
-    new_eval = evaluate_dynamics(t, param, p)
+    new_eval = evaluate_dynamics(t, t.cons[i].params, p)
     set_dual_trajectory!(Val{NP}(),t)
     cons_dual = t.cons[i].f(t.upper_storage.x_set_traj, t.upper_storage.p_set)
     out .= partials(cons_dual)
@@ -305,46 +313,53 @@ end
 function EAGO.upper_problem!(q::DynamicExt, opt::EAGO.Optimizer)
     isempty(q.cons) && return upper_problem_obj_only!(q, opt)
 
+    n = opt._current_node
+    lvbs = n.lower_variable_bounds
+    uvbs = n.upper_variable_bounds
     np = q.np
-    model = Model(Ipopt.Optimizer)
-    @variable(model, q.pL[i] <= p[i=1:q.np] <= q.pU[i])
 
-    DBB.set!(t.integrator, DBB.LocalSensitivityOn(), true)
+    model = Model(Ipopt.Optimizer)
+    set_optimizer_attribute(model, "hessian_approximation", "limited-memory")
+    @variable(model, lvbs[i] <= p[i=1:q.np] <= uvbs[i])
+
+    DBB.set!(q.integrator, DBB.LocalSensitivityOn(), true)
 
     # define the objective
-    JuMP.register(model, :obj, np, (p...) -> obj_wrap(q, params, p...),
-                                   (out, p...) -> ∇obj_wrap!(Val{np}(),q,params,out,p...))
-    if isone(prob.np)
+    JuMP.register(model, :obj, np, (p...) -> obj_wrap(q, p...),
+                                   (out, p...) -> ∇obj_wrap!(Val{np}(),q,out,p...),
+                                   (out, p...) -> error("Hessian called but is currently disabled."))
+    if isone(q.np)
         nl_obj = :(obj($(p[1])))
     else
         nl_obj = Expr(:call)
         push!(nl_obj.args, :obj)
-        for i in 1:prob.np
+        for i in 1:q.np
             push!(nl_obj.args, p[i])
         end
     end
-    set_NL_objective(m, MOI.MIN_SENSE, nl_obj)
+    set_NL_objective(model, MOI.MIN_SENSE, nl_obj)
 
-    for (cons, i) in q.cons
+    for (cons, i) in enumerate(q.cons)
         cons_udf_sym = Symbol("cons_udf_$i")
         JuMP.register(model, cons_udf_sym, np,
-                             (p...) -> cons_wrap(q, params, i, p...),
-                             (out, p...) -> ∇cons_wrap!(Val{np}(),q,params,i,out,p...))
+                             (p...) -> cons_wrap(q, i, p...),
+                             (out, p...) -> ∇cons_wrap!(Val{np}(),q,i,out,p...),
+                             (out, p...) -> error("Hessian called but is currently disabled."))
 
         gic = Expr(:call)
         push!(gic.args, cons_udf_sym)
-        for i in 1:prob.nx
+        for i in 1:q.np
             push!(gic.args, p[i])
         end
-        JuMP.add_NL_constraint(m, :($gic <= 0))
+        JuMP.add_NL_constraint(model, :($gic <= 0))
     end
 
-    JuMP.optimize!(m)
-    t_status = JuMP.termination_status(m)
-    r_status = JuMP.primal_status(m)
+    JuMP.optimize!(model)
+    t_status = JuMP.termination_status(model)
+    r_status = JuMP.primal_status(model)
     feas = EAGO.is_feasible(t_status, r_status)
 
-    opt._upper_objective_value = feas ? objective_value(m) : Inf
+    opt._upper_objective_value = feas ? objective_value(model) : Inf
     opt._upper_feasibility = feas
     @__dot__ opt._upper_solution = value(p)
     return nothing
