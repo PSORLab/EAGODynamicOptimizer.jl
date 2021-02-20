@@ -46,6 +46,8 @@ mutable struct DynamicExt{S,T} <: EAGO.ExtensionType
     cc_grad::Vector{Matrix{Float64}}
     lower_storage::SubStorage{S}
     upper_storage::SubStorage{T}
+    scalar_temp::Vector{Float64}
+    gradient_temp::Vector{Matrix{Float64}}
 end
 
 function DynamicExt(integrator, np::Int, nx::Int, nt::Int, ::S) where S
@@ -80,9 +82,14 @@ function DynamicExt(integrator, np::Int, nx::Int, nt::Int, ::S) where S
     T = Dual{TAG,Float64,np}
     upper_storage = SubStorage{T}()
     upper_storage.p_set = zeros(T,np)
+    scalar_temp = Float64[0.0]
+    gradient_temp = Matrix{Float64}[]
+    for i = 1:np
+        push!(gradient_temp, zeros(nx, nt))
+    end
     DynamicExt{S,T}(integrator, obj, cons, np, nx, nt, p_val, p_intv, x_val,
                   x_intv, x_traj, obj_val, lo, hi, cv, cc, cv_grad, cc_grad,
-                  lower_storage,upper_storage)
+                  lower_storage, upper_storage, scalar_temp, gradient_temp)
 end
 
 function DynamicExt(integrator)

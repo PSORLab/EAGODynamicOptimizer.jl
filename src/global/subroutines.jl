@@ -230,15 +230,16 @@ end
 
 function set_dual_trajectory!(::Val{NP}, t::DynamicExt) where NP
     DBB.getall!(t.gradient_temp, t.integrator, DBB.Gradient{Nominal}())
-    temp = zeros(np)
-    out = zeros(Partials{Float64,NP},nx)
-    for i = 1:nt
-        for k = 1:nx
-            for j = 1:np
-                temp[j] = t.gradient_temp[j][i,k]
+    temp = zeros(NP)
+    out = zeros(Partials{NP,Float64},t.nx)
+    for i = 1:t.nt
+        for k = 1:t.nx
+            for j = 1:t.np
+                temp[j] = t.gradient_temp[j][k,i]
             end
-            out[k] = Partials{Float64,NP}(temp)
+            out[k] = Partials{NP,Float64}(tuple(temp...))
         end
+        @show length(t.upper_storage.x_set_traj.v)
         t.upper_storage.x_set_traj.v[i] .= out
     end
     return nothing
@@ -271,28 +272,55 @@ function obj_wrap(::Val{NP}, t::DynamicExt, p) where NP
     return t.obj_val
 end
 
-function cons_wrap(::Val{NP}, t::DynamicExt, params, i, p) where NP
+function obj_wrap(t::DynamicExt, p)
+    t.scalar_temp[1] = p
+    new_eval = evaluate_dynamics(Val{1}(),t, t.obj.params,t.scalar_temp)
+    t.obj_val = t.obj.f(t.x_traj, t.p_val)
+    return t.obj_val
+end
+
+function cons_wrap(::Val{NP}, t::DynamicExt, i, p) where NP
     new_eval = evaluate_dynamics(Val{NP}(), t, t.cons[i].params, p)
     t.cons_val[i] = t.cons[i].f(t.x_traj, t.p_val)
     return t.cons_val[i]
 end
 
+function cons_wrap(t::DynamicExt, i, p)
+    new_eval = evaluate_dynamics(Val{1}(), t, t.cons[i].params, p)
+    t.cons_val[i] = t.cons[i].f(t.x_traj, t.p_val)
+    return t.cons_val[i][1]
+end
+
 function ∇obj_wrap!(::Val{NP}, t::DynamicExt, out, p) where NP
-    @show "obj_grad"
-    @show (Val{NP}(), t.obj.params, p)
     new_eval = evaluate_dynamics(Val{NP}(),t, t.obj.params, p)
-    set_dual_trajectory!{NP}(Val{NP}(),t)
+    set_dual_trajectory!(Val{NP}(),t)
     obj_dual = t.obj.f(t.upper_storage.x_set_traj, t.upper_storage.p_set)
     out .= partials(obj_dual)
     return nothing
 end
 
-function ∇cons_wrap!(::Val{NP}, t::DynamicExt, param, out, i, p) where NP
+function ∇obj_wrap(t::DynamicExt, p)
+    t.scalar_temp[1] = p
+    new_eval = evaluate_dynamics(Val{1}(),t, t.obj.params, t.scalar_temp)
+    set_dual_trajectory!(Val{1}(),t)
+    obj_dual = t.obj.f(t.upper_storage.x_set_traj, t.upper_storage.p_set)
+    return partials(obj_dual, 1)
+end
+
+function ∇cons_wrap!(::Val{NP}, t::DynamicExt, out, i, p) where NP
     new_eval = evaluate_dynamics(Val{NP}(), t, t.cons[i].params, p)
     set_dual_trajectory!(Val{NP}(),t)
     cons_dual = t.cons[i].f(t.upper_storage.x_set_traj, t.upper_storage.p_set)
     out .= partials(cons_dual)
     return nothing
+end
+
+function ∇cons_wrap(t::DynamicExt, p)
+    t.scalar_temp[1] = p
+    new_eval = evaluate_dynamics(Val{1}(), t, t.cons[i].params, p)
+    set_dual_trajectory!(Val{1}(),t)
+    cons_dual = t.cons[i].f(t.upper_storage.x_set_traj, t.upper_storage.p_set)
+    return partials(cons_dual, 1)
 end
 
 function upper_problem_obj_only!(q::DynamicExt, opt::EAGO.Optimizer)
