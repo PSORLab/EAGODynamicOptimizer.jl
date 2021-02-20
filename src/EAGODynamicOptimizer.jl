@@ -16,7 +16,7 @@ module EAGODynamicOptimizer
 using MathOptInterface, DocStringExtensions,
       DynamicBoundsBase, JuMP, Reexport, Ipopt
 
-using ForwardDiff: Dual, Partials, construct_seeds
+using ForwardDiff: Dual, Partials, construct_seeds, partials
 
 @reexport using EAGO
 

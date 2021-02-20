@@ -38,6 +38,7 @@ mutable struct DynamicExt{S,T} <: EAGO.ExtensionType
     x_intv::Vector{Vector{Interval{Float64}}}
     x_traj::Trajectory{Float64}
     obj_val::Float64
+    cons_val::Vector{Float64}
     lo::Vector{Vector{Float64}}
     hi::Vector{Vector{Float64}}
     cv::Vector{Vector{Float64}}
@@ -47,6 +48,7 @@ mutable struct DynamicExt{S,T} <: EAGO.ExtensionType
     lower_storage::SubStorage{S}
     upper_storage::SubStorage{T}
     scalar_temp::Vector{Float64}
+    value_temp::Matrix{Float64}
     gradient_temp::Vector{Matrix{Float64}}
 end
 
@@ -83,13 +85,16 @@ function DynamicExt(integrator, np::Int, nx::Int, nt::Int, ::S) where S
     upper_storage = SubStorage{T}()
     upper_storage.p_set = zeros(T,np)
     scalar_temp = Float64[0.0]
+    value_temp = zeros(Float64, nx, nt)
     gradient_temp = Matrix{Float64}[]
     for i = 1:np
         push!(gradient_temp, zeros(nx, nt))
     end
+    cons_val = Float64[]
     DynamicExt{S,T}(integrator, obj, cons, np, nx, nt, p_val, p_intv, x_val,
-                  x_intv, x_traj, obj_val, lo, hi, cv, cc, cv_grad, cc_grad,
-                  lower_storage, upper_storage, scalar_temp, gradient_temp)
+                  x_intv, x_traj, obj_val, cons_val, lo, hi, cv, cc, cv_grad, cc_grad,
+                  lower_storage, upper_storage, scalar_temp, value_temp,
+                  gradient_temp)
 end
 
 function DynamicExt(integrator)
@@ -121,6 +126,7 @@ end
 function add_supported_constraint!(t::Model, cons)
     ext_type = get_optimizer_attribute(t, "ext_type")
     push!(ext_type.cons, SupportedFunction(cons, Float64[]))
+    push!(ext_type.cons_val, 0.0)
     set_optimizer_attribute(t, "ext_type", ext_type)
     return nothing
 end
@@ -128,22 +134,25 @@ end
 function add_supported_constraint!(t::Model, params::Vector{Float64}, cons)
     ext_type = get_optimizer_attribute(t, "ext_type")
     push!(ext_type.cons, SupportedFunction(cons, Float64[], params))
+    push!(ext_type.cons_val, 0.0)
     set_optimizer_attribute(t, "ext_type", ext_type)
     return nothing
 end
 
-function load_check_support!(q::DynamicExt, m::EAGO.Optimizer,
+function load_check_support!(::Val{NP}, q::DynamicExt, m::EAGO.Optimizer,
                              support_set::DBB.SupportSet, nt::Int,
-                             nx::Int, ::T) where T
+                             nx::Int, ::T) where {NP,T}
     t = m.ext_type
     f = t.obj.f
     t.obj = SupportedFunction(f, support_set.s)
     for (i, tval) in enumerate(support_set.s)
         t.lower_storage.x_set_traj.time_dict[tval] = i
+        t.upper_storage.x_set_traj.time_dict[tval] = i
         t.x_traj.time_dict[tval] = i
     end
     for i = 1:nt
-        fill!(t.lower_storage.x_set_traj.v, zeros(T, nx))
+        push!(t.lower_storage.x_set_traj.v, zeros(T, nx))
+        push!(t.upper_storage.x_set_traj.v, zeros(Dual{TAG,Float64,NP}, nx))
         fill!(t.x_traj.v, zeros(Float64, nx))
     end
     return nothing

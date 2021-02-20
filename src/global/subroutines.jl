@@ -60,20 +60,21 @@ function EAGO.presolve_global!(t::DynamicExt{T}, m::EAGO.Optimizer) where T
     if supports_affine_relaxation(integrator)
         m.ext_type = DynamicExt(integrator, np, nx, nt, zero(MC{np, NS}))
         m.ext_type.obj = last_obj
-        load_check_support!(t, m, support_set, nt, nx,  zero(MC{np, NS}))
+        load_check_support!(Val{np}(), t, m, support_set, nt, nx,  zero(MC{np, NS}))
         for i = 1:nt
             push!(m.ext_type.lower_storage.x_set_traj.v, zeros(MC{np,NS}, nx))
         end
     else
         m.ext_type = DynamicExt(integrator, np, nx, nt, zero(Interval{Float64}))
         m.ext_type.obj = last_obj
-        load_check_support!(t, m, support_set, nt, nx, zero(Interval{Float64}))
+        load_check_support!(Val{np}(), t, m, support_set, nt, nx, zero(Interval{Float64}))
         for i = 1:nt
             push!(m.ext_type.lower_storage.x_set_traj.v, zeros(Interval{Float64}, nx))
         end
     end
     for cons in t.cons
         push!(m.ext_type.cons, SupportedFunction(cons, Float64[], cons.params))
+        push!(m.ext_type.cons_val, 0.0)
     end
     for i = 1:nt
         push!(m.ext_type.x_traj.v, zeros(Float64, nx))
@@ -229,17 +230,17 @@ function EAGO.lower_problem!(t::DynamicExt, opt::EAGO.Optimizer)
 end
 
 function set_dual_trajectory!(::Val{NP}, t::DynamicExt) where NP
+    DBB.getall!(t.value_temp, t.integrator, DBB.Value())
     DBB.getall!(t.gradient_temp, t.integrator, DBB.Gradient{Nominal}())
     temp = zeros(NP)
-    out = zeros(Partials{NP,Float64},t.nx)
+    out = zeros(Dual{TAG,Float64,NP},t.nx)
     for i = 1:t.nt
         for k = 1:t.nx
             for j = 1:t.np
                 temp[j] = t.gradient_temp[j][k,i]
             end
-            out[k] = Partials{NP,Float64}(tuple(temp...))
+            out[k] = Dual{TAG,Float64,NP}(t.value_temp[k,i], Partials{NP,Float64}(tuple(temp...)))
         end
-        @show length(t.upper_storage.x_set_traj.v)
         t.upper_storage.x_set_traj.v[i] .= out
     end
     return nothing
@@ -256,9 +257,6 @@ function evaluate_dynamics(::Val{NP}, t, param, p) where NP
             t.x_traj.v[i] .= t.x_val[i]
         end
         seeds = construct_seeds(Partials{NP,Float64})
-        @show length(t.upper_storage.p_set)
-        @show length(p)
-        @show length(seeds)
         @__dot__ t.upper_storage.p_set = Dual{TAG,Float64,NP}(p, seeds)
         t.p_val .= p
     end
@@ -266,7 +264,6 @@ function evaluate_dynamics(::Val{NP}, t, param, p) where NP
 end
 
 function obj_wrap(::Val{NP}, t::DynamicExt, p) where NP
-    @show "obj_wrap"
     new_eval = evaluate_dynamics(Val{NP}(),t, t.obj.params, p)
     t.obj_val = t.obj.f(t.x_traj, t.p_val)
     return t.obj_val
@@ -315,7 +312,7 @@ function ∇cons_wrap!(::Val{NP}, t::DynamicExt, out, i, p) where NP
     return nothing
 end
 
-function ∇cons_wrap(t::DynamicExt, p)
+function ∇cons_wrap(t::DynamicExt, i, p)
     t.scalar_temp[1] = p
     new_eval = evaluate_dynamics(Val{1}(), t, t.cons[i].params, p)
     set_dual_trajectory!(Val{1}(),t)
@@ -342,11 +339,6 @@ function upper_problem_obj_only!(q::DynamicExt, opt::EAGO.Optimizer)
     @__dot__ opt._upper_solution = t.p_val
 
     return nothing
-end
-
-function obj_wrap_tester(x)
-    @show x
-    return error("stop here")
 end
 
 function EAGO.upper_problem!(q::DynamicExt, opt::EAGO.Optimizer)
@@ -382,7 +374,7 @@ function EAGO.upper_problem!(q::DynamicExt, opt::EAGO.Optimizer)
     end
     set_NL_objective(model, MOI.MIN_SENSE, nl_obj)
 
-    for (cons, i) in enumerate(q.cons)
+    for (i,cons) in enumerate(q.cons)
         cons_udf_sym = Symbol("cons_udf_$i")
         if isone(q.np)
             JuMP.register(model, cons_udf_sym, 1, p -> cons_wrap(q, i, p),
@@ -408,7 +400,7 @@ function EAGO.upper_problem!(q::DynamicExt, opt::EAGO.Optimizer)
     JuMP.optimize!(model)
     t_status = JuMP.termination_status(model)
     r_status = JuMP.primal_status(model)
-    feas = EAGO.is_feasible(t_status, r_status)
+    feas = EAGO.is_feasible_solution(t_status, r_status)
 
     opt._upper_objective_value = feas ? objective_value(model) : Inf
     opt._upper_feasibility = feas
