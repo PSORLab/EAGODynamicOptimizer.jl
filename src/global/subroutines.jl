@@ -141,6 +141,8 @@ function lower_bound_problem!(::Val{true}, t::DynamicExt, opt::EAGO.Optimizer)
     uvbs = n.upper_variable_bounds
     integrator = t.integrator
 
+    EAGO.update_relaxed_problem_box!(opt)
+
     setall!(integrator, ParameterBound{Lower}(), lvbs)
     setall!(integrator, ParameterBound{Upper}(), uvbs)
 
@@ -187,12 +189,12 @@ function lower_bound_problem!(::Val{true}, t::DynamicExt, opt::EAGO.Optimizer)
     for i = 1:length(t.cons)
         cons_mc = t.cons[i].f(t.lower_storage.x_set_traj, t.lower_storage.p_set)
         sat_vec = MOI.ScalarAffineTerm{Float64}[MOI.ScalarAffineTerm{Float64}(0.0, MOI.VariableIndex(i)) for i = 1:t.np]
-        saf_temp_cons = MOI.ScalarAffineFunction{Float64}(sat_vec, 0.0)
+        saf_temp_cons = MOI.ScalarAffineFunction{Float64}(sat_vec, -cons_mc.cv)
         for j = 1:t.np
             coeff = @inbounds cons_mc.cv_grad[j]
             saf_temp_cons.terms[j] = MOI.ScalarAffineTerm{Float64}(coeff, MOI.VariableIndex(j))
             pv = opt._current_xref[j]
-            saf_temp_cons.constant = saf_temp.constant - coeff*pv
+            saf_temp_cons.constant += coeff*pv
         end
         constant_value = saf_temp_cons.constant
         saf_temp_cons.constant = 0.0
@@ -351,6 +353,7 @@ function EAGO.upper_problem!(q::DynamicExt, opt::EAGO.Optimizer)
 
     model = Model(Ipopt.Optimizer)
     set_optimizer_attribute(model, "hessian_approximation", "limited-memory")
+    set_optimizer_attribute(model, "print_level", 0)
     @variable(model, lvbs[i] <= p[i=1:q.np] <= uvbs[i])
 
     DBB.set!(q.integrator, DBB.LocalSensitivityOn(), true)
@@ -401,10 +404,16 @@ function EAGO.upper_problem!(q::DynamicExt, opt::EAGO.Optimizer)
     t_status = JuMP.termination_status(model)
     r_status = JuMP.primal_status(model)
     feas = EAGO.is_feasible_solution(t_status, r_status)
+    @show t_status, r_status, feas
 
-    opt._upper_objective_value = feas ? objective_value(model) : Inf
+    if feas
+        EAGO.stored_adjusted_upper_bound!(opt, objective_value(model))
+    else
+        opt._upper_objective_value = Inf
+    end
     opt._upper_feasibility = feas
     @__dot__ opt._upper_solution = value(p)
+
     return nothing
 end
 
