@@ -131,7 +131,7 @@ function add_supported_objective!(t::Model, params::Vector{Float64}, obj)
     return nothing
 end
 
-function add_supported_objective!(t::Model, params::Vector{Float64}, obj. integrator)
+function add_supported_objective!(t::Model, params::Vector{Float64}, obj, integrator)
     ext_type = get_optimizer_attribute(t, "ext_type")
     ext_type.obj = SupportedFunction(obj, Float64[], params, integrator)
     set_optimizer_attribute(t, "ext_type", ext_type)

@@ -260,14 +260,14 @@ function set_dual_trajectory!(::Val{NP}, t::DynamicExt) where NP
     return nothing
 end
 
-function evaluate_dynamics(::Val{NP}, t, param, p) where NP
-    DBB.setall!(t.integrator, DBB.ConstantParameterValue(), param)
+function evaluate_dynamics(::Val{NP}, t, param, p, integrator) where NP
+    DBB.setall!(integrator, DBB.ConstantParameterValue(), param)
     new_point = t.p_val != p
     if new_point
-        integrate!(t.integrator)
+        integrate!(integrator)
         for i = 1:t.nt
             support_time = t.obj.support[i]
-            get(t.x_val[i], t.integrator, DBB.Value(support_time))
+            get(t.x_val[i], integrator, DBB.Value(support_time))
             t.x_traj.v[i] .= t.x_val[i]
         end
         seeds = construct_seeds(Partials{NP,Float64})
@@ -278,59 +278,67 @@ function evaluate_dynamics(::Val{NP}, t, param, p) where NP
 end
 
 function obj_wrap(::Val{NP}, t::DynamicExt, p) where NP
-    new_eval = evaluate_dynamics(Val{NP}(),t, t.obj.params, p)
+    new_eval = evaluate_dynamics(Val{NP}(),t, t.obj.params, p, t.obj.integrator)
     t.obj_val = t.obj.f(t.x_traj, t.p_val)
+    @show t.obj_val, p
     return t.obj_val
 end
 
 function obj_wrap(t::DynamicExt, p)
     t.scalar_temp[1] = p
-    new_eval = evaluate_dynamics(Val{1}(),t, t.obj.params,t.scalar_temp)
+    new_eval = evaluate_dynamics(Val{1}(),t, t.obj.params,t.scalar_temp, t.obj.integrator)
     t.obj_val = t.obj.f(t.x_traj, t.p_val)
+    @show t.obj_val, p
     return t.obj_val
 end
 
 function cons_wrap(::Val{NP}, t::DynamicExt, i, p) where NP
-    new_eval = evaluate_dynamics(Val{NP}(), t, t.cons[i].params, p)
+    new_eval = evaluate_dynamics(Val{NP}(), t, t.cons[i].params, p, t.cons[i].integrator)
     t.cons_val[i] = t.cons[i].f(t.x_traj, t.p_val)
+    @show t.cons_val[i], p
     return t.cons_val[i]
 end
 
 function cons_wrap(t::DynamicExt, i, p)
-    new_eval = evaluate_dynamics(Val{1}(), t, t.cons[i].params, p)
+    new_eval = evaluate_dynamics(Val{1}(), t, t.cons[i].params, p, t.cons[i].integrator)
     t.cons_val[i] = t.cons[i].f(t.x_traj, t.p_val)
+    @show t.cons_val[i][1], p
     return t.cons_val[i][1]
 end
 
 function ∇obj_wrap!(::Val{NP}, t::DynamicExt, out, p) where NP
-    new_eval = evaluate_dynamics(Val{NP}(),t, t.obj.params, p)
+    new_eval = evaluate_dynamics(Val{NP}(),t, t.obj.params, p, t.obj.integrator)
     set_dual_trajectory!(Val{NP}(),t)
     obj_dual = t.obj.f(t.upper_storage.x_set_traj, t.upper_storage.p_set)
     out .= partials(obj_dual)
+    @show out, p
     return nothing
 end
 
 function ∇obj_wrap(t::DynamicExt, p)
     t.scalar_temp[1] = p
-    new_eval = evaluate_dynamics(Val{1}(),t, t.obj.params, t.scalar_temp)
+    new_eval = evaluate_dynamics(Val{1}(),t, t.obj.params, t.scalar_temp, t.obj.integrator)
     set_dual_trajectory!(Val{1}(),t)
     obj_dual = t.obj.f(t.upper_storage.x_set_traj, t.upper_storage.p_set)
+    @show partials(obj_dual, 1), p
     return partials(obj_dual, 1)
 end
 
 function ∇cons_wrap!(::Val{NP}, t::DynamicExt, out, i, p) where NP
-    new_eval = evaluate_dynamics(Val{NP}(), t, t.cons[i].params, p)
+    new_eval = evaluate_dynamics(Val{NP}(), t, t.cons[i].params, p, t.cons[i].integrator)
     set_dual_trajectory!(Val{NP}(),t)
     cons_dual = t.cons[i].f(t.upper_storage.x_set_traj, t.upper_storage.p_set)
     out .= partials(cons_dual)
+    @show out, p
     return nothing
 end
 
 function ∇cons_wrap(t::DynamicExt, i, p)
     t.scalar_temp[1] = p
-    new_eval = evaluate_dynamics(Val{1}(), t, t.cons[i].params, p)
+    new_eval = evaluate_dynamics(Val{1}(), t, t.cons[i].params, p, t.cons[i].integrator)
     set_dual_trajectory!(Val{1}(),t)
     cons_dual = t.cons[i].f(t.upper_storage.x_set_traj, t.upper_storage.p_set)
+    @show partials(cons_dual, 1), p
     return partials(cons_dual, 1)
 end
 
