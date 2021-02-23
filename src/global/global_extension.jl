@@ -17,10 +17,10 @@ struct SupportedFunction
     integrator
 end
 function SupportedFunction(f, support::Vector{Float64}, integrator = nothing)
-    return SupportedFunction(f, 1, support, Float64[], false, nothing)
+    return SupportedFunction(f, 1, support, Float64[], false, integrator)
 end
 function SupportedFunction(f, support::Vector{Float64}, params::Vector{Float64}, integrator = nothing)
-    return SupportedFunction(f, 1, support, params, true, nothing)
+    return SupportedFunction(f, 1, support, params, true, integrator)
 end
 (d::SupportedFunction)(x, p) = d.f(x, p)
 
@@ -154,10 +154,8 @@ function add_supported_constraint!(t::Model, cons, integrator)
     return nothing
 end
 
-function load_check_support!(::Val{NP}, q::DynamicExt, m::EAGO.Optimizer,
-                             support_set::DBB.SupportSet, nt::Int,
-                             nx::Int, ::T) where {NP,T}
-    t = m.ext_type
+function load_check_support!(::Val{NP}, t::DynamicExt, support_set::DBB.SupportSet,
+                             nt::Int, nx::Int, ::T) where {NP,T}
     f = t.obj.f
     t.obj = SupportedFunction(f, support_set.s)
     for (i, tval) in enumerate(support_set.s)

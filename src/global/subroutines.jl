@@ -58,31 +58,32 @@ function EAGO.presolve_global!(t::DynamicExt{T}, m::EAGO.Optimizer) where T
     integrator = m.ext_type.integrator
     support_set = get(integrator, DBB.SupportSet())
     nt = length(support_set.s)
-    m.ext_type = DynamicExt(integrator, np, nx, nt, zero(MC{np, NS}))
+    ext_type = DynamicExt(integrator, np, nx, nt, zero(MC{np, NS}))
     if last_obj.integrator === nothing
-        m.ext_type.obj = SupportedFunction(last_obj, Float64[], last_obj.params, integrator)
+        ext_type.obj = SupportedFunction(last_obj, Float64[], last_obj.params, integrator)
     else
-        m.ext_type.obj = last_obj
+        ext_type.obj = last_obj
     end
-    m.ext_type.lower_storage_interval.x_set_traj.nt = nt
-    m.ext_type.lower_storage_interval.x_set_traj.nx = nx
-    m.ext_type.lower_storage_relax.x_set_traj.nt = nt
-    m.ext_type.lower_storage_relax.x_set_traj.nx = nx
+    ext_type.lower_storage_interval.x_set_traj.nt = nt
+    ext_type.lower_storage_interval.x_set_traj.nx = nx
+    ext_type.lower_storage_relax.x_set_traj.nt = nt
+    ext_type.lower_storage_relax.x_set_traj.nx = nx
 
-    load_check_support!(Val{np}(), t, m, support_set, nt, nx, zero(MC{np, NS}))
+    load_check_support!(Val{np}(), ext_type, support_set, nt, nx, zero(MC{np, NS}))
     for i = 1:nt
-        push!(m.ext_type.lower_storage_interval.x_set_traj.v, zeros(Interval{Float64}, nx))
-        push!(m.ext_type.lower_storage_relax.x_set_traj.v, zeros(MC{np,NS}, nx))
-        push!(m.ext_type.x_traj.v, zeros(Float64, nx))
+        push!(ext_type.lower_storage_interval.x_set_traj.v, zeros(Interval{Float64}, nx))
+        push!(ext_type.lower_storage_relax.x_set_traj.v, zeros(MC{np,NS}, nx))
+        push!(ext_type.x_traj.v, zeros(Float64, nx))
     end
 
     # add constraint functions
     for cons in t.cons
         cintegrator = cons.integrator === nothing ? integrator : cons.integrator
-        push!(m.ext_type.cons, SupportedFunction(cons, Float64[], cons.params, cintegrator))
-        push!(m.ext_type.cons_val, 0.0)
+        @show typeof(cintegrator)
+        push!(ext_type.cons, SupportedFunction(cons, Float64[], cons.params, cintegrator))
+        push!(ext_type.cons_val, 0.0)
     end
-
+    m.ext_type = ext_type
     m._presolve_time = time() - m._parse_time
 
     return nothing
