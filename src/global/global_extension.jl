@@ -46,7 +46,8 @@ mutable struct DynamicExt{S,T} <: EAGO.ExtensionType
     cc::Vector{Vector{Float64}}
     cv_grad::Vector{Matrix{Float64}}
     cc_grad::Vector{Matrix{Float64}}
-    lower_storage::SubStorage{S}
+    lower_storage_interval::SubStorage{Interval{Float64}}
+    lower_storage_relax::SubStorage{S}
     upper_storage::SubStorage{T}
     scalar_temp::Vector{Float64}
     value_temp::Matrix{Float64}
@@ -80,8 +81,10 @@ function DynamicExt(integrator, np::Int, nx::Int, nt::Int, ::S) where S
         push!(cv_grad, zeros(nx, np))
         push!(cc_grad, zeros(nx, np))
     end
-    lower_storage = SubStorage{S}()
-    lower_storage.p_set = zeros(S,np)
+    lower_storage_interval = SubStorage{Interval{Float64}}()
+    lower_storage_interval.p_set = zeros(Interval{Float64},np)
+    lower_storage_relax = SubStorage{S}()
+    lower_storage_relax.p_set = zeros(S,np)
     T = Dual{TAG,Float64,np}
     upper_storage = SubStorage{T}()
     upper_storage.p_set = zeros(T,np)
@@ -94,18 +97,15 @@ function DynamicExt(integrator, np::Int, nx::Int, nt::Int, ::S) where S
     cons_val = Float64[]
     DynamicExt{S,T}(integrator, obj, cons, np, nx, nt, p_val, p_intv, x_val,
                   x_intv, x_traj, obj_val, cons_val, lo, hi, cv, cc, cv_grad, cc_grad,
-                  lower_storage, upper_storage, scalar_temp, value_temp,
-                  gradient_temp)
+                  lower_storage_interval, lower_storage_relax, upper_storage,
+                  scalar_temp, value_temp, gradient_temp)
 end
 
 function DynamicExt(integrator)
     np = DBB.get(integrator, DBB.ParameterNumber())
     nx = DBB.get(integrator, DBB.StateNumber())
     nt = DBB.get(integrator, DBB.SupportNumber())
-    if supports_affine_relaxation(integrator)
-        return DynamicExt(integrator, np, nx, nt, zero(MC{np,NS}))
-    end
-    return DynamicExt(integrator, np, nx, nt, zero(Interval{Float64}))
+    return DynamicExt(integrator, np, nx, nt, zero(MC{np,NS}))
 end
 
 Base.eltype(::DynamicExt{T}) where T = T
@@ -161,12 +161,14 @@ function load_check_support!(::Val{NP}, q::DynamicExt, m::EAGO.Optimizer,
     f = t.obj.f
     t.obj = SupportedFunction(f, support_set.s)
     for (i, tval) in enumerate(support_set.s)
-        t.lower_storage.x_set_traj.time_dict[tval] = i
+        t.lower_storage_interval.x_set_traj.time_dict[tval] = i
+        t.lower_storage_relax.x_set_traj.time_dict[tval] = i
         t.upper_storage.x_set_traj.time_dict[tval] = i
         t.x_traj.time_dict[tval] = i
     end
     for i = 1:nt
-        push!(t.lower_storage.x_set_traj.v, zeros(T, nx))
+        push!(t.lower_storage_interval.x_set_traj.v, zeros(Interval{Float64}, nx))
+        push!(t.lower_storage_relax.x_set_traj.v, zeros(T, nx))
         push!(t.upper_storage.x_set_traj.v, zeros(Dual{TAG,Float64,NP}, nx))
         fill!(t.x_traj.v, zeros(Float64, nx))
     end

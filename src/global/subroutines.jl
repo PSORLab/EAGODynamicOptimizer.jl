@@ -54,33 +54,34 @@ function EAGO.presolve_global!(t::DynamicExt{T}, m::EAGO.Optimizer) where T
     m.ext_type.p_intv = zeros(Interval{Float64}, np)
     last_obj = m.ext_type.obj
 
+    # loads lower problem based on extension integrator
     integrator = m.ext_type.integrator
     support_set = get(integrator, DBB.SupportSet())
     nt = length(support_set.s)
-    if supports_affine_relaxation(integrator)
-        m.ext_type = DynamicExt(integrator, np, nx, nt, zero(MC{np, NS}))
-        m.ext_type.obj = last_obj
-        load_check_support!(Val{np}(), t, m, support_set, nt, nx,  zero(MC{np, NS}))
-        for i = 1:nt
-            push!(m.ext_type.lower_storage.x_set_traj.v, zeros(MC{np,NS}, nx))
-        end
+    m.ext_type = DynamicExt(integrator, np, nx, nt, zero(MC{np, NS}))
+    if last_obj.integrator === nothing
+        m.ext_type.obj = SupportedFunction(last_obj, Float64[], last_obj.params, integrator)
     else
-        m.ext_type = DynamicExt(integrator, np, nx, nt, zero(Interval{Float64}))
         m.ext_type.obj = last_obj
-        load_check_support!(Val{np}(), t, m, support_set, nt, nx, zero(Interval{Float64}))
-        for i = 1:nt
-            push!(m.ext_type.lower_storage.x_set_traj.v, zeros(Interval{Float64}, nx))
-        end
     end
-    for cons in t.cons
-        push!(m.ext_type.cons, SupportedFunction(cons, Float64[], cons.params))
-        push!(m.ext_type.cons_val, 0.0)
-    end
+    m.ext_type.lower_storage_interval.x_set_traj.nt = nt
+    m.ext_type.lower_storage_interval.x_set_traj.nx = nx
+    m.ext_type.lower_storage_relax.x_set_traj.nt = nt
+    m.ext_type.lower_storage_relax.x_set_traj.nx = nx
+
+    load_check_support!(Val{np}(), t, m, support_set, nt, nx, zero(MC{np, NS}))
     for i = 1:nt
+        push!(m.ext_type.lower_storage_interval.x_set_traj.v, zeros(Interval{Float64}, nx))
+        push!(m.ext_type.lower_storage_relax.x_set_traj.v, zeros(MC{np,NS}, nx))
         push!(m.ext_type.x_traj.v, zeros(Float64, nx))
     end
-    m.ext_type.lower_storage.x_set_traj.nt = nt
-    m.ext_type.lower_storage.x_set_traj.nx = nx
+
+    # add constraint functions
+    for cons in t.cons
+        cintegrator = cons.integrator === nothing ? integrator : cons.integrator
+        push!(m.ext_type.cons, SupportedFunction(cons, Float64[], cons.params, cintegrator))
+        push!(m.ext_type.cons_val, 0.0)
+    end
 
     m._presolve_time = time() - m._parse_time
 
@@ -92,76 +93,6 @@ function load_integrator!(integrator, lvbs, uvbs, xref)
     DBB.setall!(integrator, ParameterBound{Lower}(), lvbs)
     DBB.setall!(integrator, ParameterBound{Upper}(), uvbs)
     DBB.setall!(obj_integrator, ParameterValue(), xref)
-    return nothing
-end
-
-function objective_relax(::Val{true}, t::DynamicExt)
-end
-
-function objective_relax!(::Val{false}, t::DynamicExt, integrator)
-    for i = 1:t.nt
-        support_time = t.obj.support[i]
-        DBB.get(t.lo[i], integrator, Bound{Lower}(support_time))
-        DBB.get(t.hi[i], integrator, Bound{Upper}(support_time))
-    end
-    load_intervals!(t.x_intv, t.lo, t.hi, t.nt)
-    for i = 1:nt
-        t.lower_storage.x_set_traj.v[i] .= t.x_intv[i]
-    end
-    t.lower_storage.obj_set = t.obj(t.lower_storage.x_set_traj, t.lower_storage.p_set)
-    opt._lower_objective_value = lo(t.lower_storage.obj_set)
-    return nothing
-end
-
-function constraint_relax(::Val{true}, t::DynamicExt, i)
-    return nothing
-end
-
-function constraint_relax(::Val{false}, t::DynamicExt, integrator, i)
-    for j = 1:t.nt
-        support_time = t.cons.support[j]
-        get(t.lo[j], integrator, Bound{Lower}(support_time))
-        get(t.hi[j], integrator, Bound{Upper}(support_time))
-    end
-    load_intervals!(t.x_intv, t.lo, t.hi, t.nt)
-    for j = 1:nt
-        t.lower_storage.x_set_traj.v[j] .= t.x_intv[j]
-    end
-    return t.cons[i].f(t.lower_storage.x_set_traj, t.lower_storage.p_set)
-end
-
-function lower_bound_problem!(::Val{false}, t::DynamicExt, opt::EAGO.Optimizer)
-
-    # reset box used to evaluate relaxation
-    n = opt._current_node
-    lvbs = n.lower_variable_bounds
-    uvbs = n.upper_variable_bounds
-    @__dot__ opt._current_xref = 0.5*(lvbs + uvbs)
-    @__dot__ t.p_intv = Interval(lvbs, uvbs)
-    @__dot__ t.lower_storage.p_set = t.p_intv
-
-    feasible = true
-    for (cons, i) in enumerate(t.cons)
-        integrator = cons.integrator
-        load_integrator!(integrator, lvbs, uvbs, opt._current_xref)
-        relax!(integrator)
-        cval = constraint_relax!(Val(supports_affine(integrator)), t, integrator, i)
-        if cval > 0.0
-            feasible = false
-            break
-        end
-    end
-
-    if feasible
-        obj_integrator = t.obj.integrator
-        load_integrator!(obj_integrator, lvbs, uvbs, opt._current_xref)
-        relax!(obj_integrator)
-        objective_relax!(Val(supports_affine(obj_integrator)), t, integrator)
-    else
-        opt._lower_objective_value = -Inf
-    end
-    opt._lower_solution = opt._current_xref
-    opt._lower_feasibility = feasible
     return nothing
 end
 
@@ -259,8 +190,131 @@ function lower_bound_problem!(::Val{true}, t::DynamicExt, opt::EAGO.Optimizer)
     return nothing
 end
 
+function objective_relax!(::Val{true}, t::DynamicExt)
+    for i = 1:t.nt
+        support_time = t.obj.support[i]
+        get(t.lo[i], integrator, Bound{Lower}(support_time))
+        get(t.hi[i], integrator, Bound{Upper}(support_time))
+        get(t.cv[i], integrator, Relaxation{Lower}(support_time))
+        get(t.cc[i], integrator, Relaxation{Upper}(support_time))
+        get(t.cv_grad[i], integrator, Subgradient{Lower}(support_time))
+        get(t.cc_grad[i], integrator, Subgradient{Upper}(support_time))
+    end
+    load_intervals!(t.x_intv, t.lo, t.hi, t.nt)
+    load_trajectory!(t.lower_storage.x_set_traj, t.cv,
+                     t.cc, t.x_intv, t.cv_grad, t.cc_grad)
+
+    t.lower_storage.obj_set = t.obj(t.lower_storage.x_set_traj, t.lower_storage.p_set)
+
+    saf_temp = opt._working_problem._objective_saf
+    saf_temp.constant = t.lower_storage.obj_set.cv
+    for i = 1:t.np
+        coeff = @inbounds t.lower_storage.obj_set.cv_grad[i]
+        saf_temp.terms[i] = MOI.ScalarAffineTerm{Float64}(coeff, MOI.VariableIndex(i))
+        pv = opt._current_xref[i]
+        saf_temp.constant = saf_temp.constant - coeff*pv
+    end
+    MOI.set(relaxed_optimizer, MOI.ObjectiveFunction{MOI.ScalarAffineFunction{Float64}}(), saf_temp)
+
+    return nothing
+end
+
+function objective_relax!(::Val{false}, t::DynamicExt, integrator)
+    for i = 1:t.nt
+        support_time = t.obj.support[i]
+        DBB.get(t.lo[i], integrator, Bound{Lower}(support_time))
+        DBB.get(t.hi[i], integrator, Bound{Upper}(support_time))
+    end
+    load_intervals!(t.x_intv, t.lo, t.hi, t.nt)
+    for i = 1:nt
+        t.lower_storage_interval.x_set_traj.v[i] .= t.x_intv[i]
+    end
+    t.lower_storage_interval.obj_set = t.obj(t.lower_storage_interval.x_set_traj,
+                                             t.lower_storage.p_set)
+    opt._lower_objective_value = lo(t.lower_storage_interval.obj_set)
+    return nothing
+end
+
+function constraint_relax(::Val{true}, t::DynamicExt, i)
+    return nothing
+end
+
+function constraint_relax(::Val{false}, t::DynamicExt, integrator, i)
+    for j = 1:t.nt
+        support_time = t.cons.support[j]
+        get(t.lo[j], integrator, Bound{Lower}(support_time))
+        get(t.hi[j], integrator, Bound{Upper}(support_time))
+    end
+    load_intervals!(t.x_intv, t.lo, t.hi, t.nt)
+    for j = 1:nt
+        t.lower_storage_interval.x_set_traj.v[j] .= t.x_intv[j]
+    end
+    return t.cons[i].f(t.lower_storage_interval.x_set_traj, t.lower_storage.p_set)
+end
+
 function EAGO.lower_problem!(t::DynamicExt, opt::EAGO.Optimizer)
-    lower_bound_problem!(Val(supports_affine_relaxation(t.integrator)), t, opt)
+
+    # reset box used to evaluate relaxation
+    n = opt._current_node
+    lvbs = n.lower_variable_bounds
+    uvbs = n.upper_variable_bounds
+    @__dot__ opt._current_xref = 0.5*(lvbs + uvbs)
+    @__dot__ t.p_intv = Interval(lvbs, uvbs)
+    @__dot__ t.lower_storage_interval.p_set = t.p_intv
+
+    feasible = true
+    support_aff = false
+    for (i,cons) in enumerate(t.cons)
+        integrator = cons.integrator
+        load_integrator!(integrator, lvbs, uvbs, opt._current_xref)
+        relax!(integrator)
+        aff_flag = supports_affine(integrator)
+        support_aff = support_aff || aff_flag
+        if aff_flag
+            cval = constraint_relax(Val{true}(), t, integrator, i)
+        else
+            cval = constraint_relax(Val{false}(), t, integrator, i)
+        end
+        if cval > 0.0
+            feasible = false
+            break
+        end
+    end
+
+    if feasible
+        obj_integrator = t.obj.integrator
+        load_integrator!(obj_integrator, lvbs, uvbs, opt._current_xref)
+        relax!(obj_integrator)
+        support_aff_obj = supports_affine(obj_integrator)
+        support_aff = support_aff || support_aff_cons
+        objective_relax!(Val(support_aff_obj), t, integrator)
+
+        if support_aff
+            MOI.optimize!(relaxed_optimizer)
+            opt._lower_termination_status = MOI.get(relaxed_optimizer, MOI.TerminationStatus())
+            opt._lower_result_status = MOI.get(relaxed_optimizer, MOI.PrimalStatus())
+            valid_flag, feasible_flag = EAGO.is_globally_optimal(opt._lower_termination_status, opt._lower_result_status)
+            if valid_flag
+                aff_obj = MOI.get(relaxed_optimizer, MOI.ObjectiveValue())
+                if aff_obj > lo(t.lower_storage.obj_set)
+                    opt._lower_objective_value = MOI.get(relaxed_optimizer, MOI.ObjectiveValue())
+                    for i = 1:opt._working_problem._variable_count
+                        opt._lower_solution[i] = MOI.get(relaxed_optimizer, MOI.VariablePrimal(), opt._relaxed_variable_index[i])
+                    end
+                else
+                    opt._lower_objective_value = lo(t.lower_storage.obj_set)
+                    opt._lower_solution = opt._current_xref
+                    opt._lower_feasibility = true
+                end
+            end
+            opt._lower_objective_value = MOI.get(relaxed_optimizer, MOI.ObjectiveValue())
+        end
+    else
+        opt._lower_objective_value = -Inf
+    end
+    opt._lower_solution = opt._current_xref
+    opt._lower_feasibility = feasible
+    return nothing
 end
 
 function set_dual_trajectory!(::Val{NP}, t::DynamicExt, integrator) where NP
