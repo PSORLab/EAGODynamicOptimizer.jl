@@ -18,10 +18,12 @@ mutable struct SIPDynamicExt{P,T} <: EAGO.ExtensionType
     llp_ext::DynamicExt{T}
     bnd_ext::DynamicExt{T}
 end
-function SIPDynamicExt(integrator, prob)
-    llp_ext = DynamicExt(integrator)
-    bnd_ext = DynamicExt(integrator)
-    return SIPDynamicExt{eltype(prob),eltype(llp_ext)}(llp_ext, bnd_ext, prob)
+function SIPDynamicExt(integrator_factory, prob)
+    llp_ext = DynamicExt(integrator_factory(prob))
+    bnd_ext = DynamicExt(integrator_factory(prob))
+    return SIPDynamicExt{eltype(prob),eltype(llp_ext)}(prob, prob,
+                                                       integrator_factory,
+                                                       llp_ext, bnd_ext)
 end
 
 function get_ext(m::SIPDynamicExt{T}, s::S) where {T, S <: Union{LowerLevel1,LowerLevel2,LowerLevel3}}
@@ -34,6 +36,7 @@ end
 function EAGO.build_model(t::SIPDynamicExt{T}, a::A, s::S, p::SIPProblem) where {T, A <: AbstractSIPAlgo, S <: AbstractSubproblemType}
     vL, vU, nv = EAGO.get_bnds(s,p)
     ext = get_ext(t,s)
+    DBB.set!(ext.integrator, DBB.ConstantParameterValue(), pbar)
     DBB.setall!(ext.integrator, DBB.ParameterBound{Lower}(), vL)
     DBB.setall!(ext.integrator, DBB.ParameterBound{Upper}(), vU)
     model, v = EAGODynamicModel(ext)
@@ -83,7 +86,8 @@ function EAGO.sip_bnd!(t::SIPDynamicExt{T}, alg::A, s::S, sr::SIPSubResult, resu
     #                         Jx! = prob.Jx!, Jp! = prob.Jp!, prob.kwargs)
     #t.llp_ext = DynamicExt(t.integrator_factory(temp_prob))
     #set_optimizer_attribute(m, "ext_type", t.llp_ext)
-    set!(bnd_ext.intregator, DBB.ConstantParameterValue(), pbar)
+
+    integrator = integrator_factory(prob)
 
     for i = 1:prob.nSIP
         ϵ_g = EAGO.get_eps(s, sr, i)
