@@ -243,9 +243,9 @@ function EAGO.lower_problem!(t::DynamicExt, opt::EAGO.Optimizer)
     lower_bound_problem!(Val(supports_affine_relaxation(t.integrator)), t, opt)
 end
 
-function set_dual_trajectory!(::Val{NP}, t::DynamicExt) where NP
-    DBB.getall!(t.value_temp, t.integrator, DBB.Value())
-    DBB.getall!(t.gradient_temp, t.integrator, DBB.Gradient{Nominal}())
+function set_dual_trajectory!(::Val{NP}, t::DynamicExt, integrator) where NP
+    DBB.getall!(t.value_temp, integrator, DBB.Value())
+    DBB.getall!(t.gradient_temp, integrator, DBB.Gradient{Nominal}())
     temp = zeros(NP)
     out = zeros(Dual{TAG,Float64,NP},t.nx)
     for i = 1:t.nt
@@ -308,7 +308,7 @@ end
 
 function ∇obj_wrap!(::Val{NP}, t::DynamicExt, out, p) where NP
     new_eval = evaluate_dynamics(Val{NP}(),t, t.obj.params, p, t.obj.integrator)
-    set_dual_trajectory!(Val{NP}(),t)
+    set_dual_trajectory!(Val{NP}(),t, t.obj.integrator)
     obj_dual = t.obj.f(t.upper_storage.x_set_traj, t.upper_storage.p_set)
     out .= partials(obj_dual)
     @show out, p
@@ -318,7 +318,7 @@ end
 function ∇obj_wrap(t::DynamicExt, p)
     t.scalar_temp[1] = p
     new_eval = evaluate_dynamics(Val{1}(),t, t.obj.params, t.scalar_temp, t.obj.integrator)
-    set_dual_trajectory!(Val{1}(),t)
+    set_dual_trajectory!(Val{1}(),t, t.obj.integrator)
     obj_dual = t.obj.f(t.upper_storage.x_set_traj, t.upper_storage.p_set)
     @show partials(obj_dual, 1), p
     return partials(obj_dual, 1)
@@ -326,7 +326,7 @@ end
 
 function ∇cons_wrap!(::Val{NP}, t::DynamicExt, out, i, p) where NP
     new_eval = evaluate_dynamics(Val{NP}(), t, t.cons[i].params, p, t.cons[i].integrator)
-    set_dual_trajectory!(Val{NP}(),t)
+    set_dual_trajectory!(Val{NP}(),t, t.cons[i].integrator)
     cons_dual = t.cons[i].f(t.upper_storage.x_set_traj, t.upper_storage.p_set)
     out .= partials(cons_dual)
     @show out, p
@@ -336,7 +336,7 @@ end
 function ∇cons_wrap(t::DynamicExt, i, p)
     t.scalar_temp[1] = p
     new_eval = evaluate_dynamics(Val{1}(), t, t.cons[i].params, p, t.cons[i].integrator)
-    set_dual_trajectory!(Val{1}(),t)
+    set_dual_trajectory!(Val{1}(),t, t.cons[i].integrator)
     cons_dual = t.cons[i].f(t.upper_storage.x_set_traj, t.upper_storage.p_set)
     @show partials(cons_dual, 1), p
     return partials(cons_dual, 1)
