@@ -156,8 +156,6 @@ end
 
 function load_check_support!(::Val{NP}, t::DynamicExt, support_set::DBB.SupportSet,
                              nt::Int, nx::Int, ::T) where {NP,T}
-    f = t.obj.f
-    t.obj = SupportedFunction(f, support_set.s)
     for (i, tval) in enumerate(support_set.s)
         t.lower_storage_interval.x_set_traj.time_dict[tval] = i
         t.lower_storage_relax.x_set_traj.time_dict[tval] = i

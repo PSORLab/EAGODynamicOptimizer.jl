@@ -59,17 +59,18 @@ function EAGO.presolve_global!(t::DynamicExt{T}, m::EAGO.Optimizer) where T
     support_set = get(integrator, DBB.SupportSet())
     nt = length(support_set.s)
     ext_type = DynamicExt(integrator, np, nx, nt, zero(MC{np, NS}))
+
+    load_check_support!(Val{np}(), ext_type, support_set, nt, nx, zero(MC{np, NS}))
     if last_obj.integrator === nothing
-        ext_type.obj = SupportedFunction(last_obj, Float64[], last_obj.params, integrator)
+        ext_type.obj = SupportedFunction(last_obj, support_set.s, last_obj.params, integrator)
     else
-        ext_type.obj = last_obj
+        ext_type.obj = SupportedFunction(last_obj, support_set.s, last_obj.params, last_obj.integrator)
     end
     ext_type.lower_storage_interval.x_set_traj.nt = nt
     ext_type.lower_storage_interval.x_set_traj.nx = nx
     ext_type.lower_storage_relax.x_set_traj.nt = nt
     ext_type.lower_storage_relax.x_set_traj.nx = nx
 
-    load_check_support!(Val{np}(), ext_type, support_set, nt, nx, zero(MC{np, NS}))
     for i = 1:nt
         push!(ext_type.lower_storage_interval.x_set_traj.v, zeros(Interval{Float64}, nx))
         push!(ext_type.lower_storage_relax.x_set_traj.v, zeros(MC{np,NS}, nx))
@@ -79,8 +80,7 @@ function EAGO.presolve_global!(t::DynamicExt{T}, m::EAGO.Optimizer) where T
     # add constraint functions
     for cons in t.cons
         cintegrator = cons.integrator === nothing ? integrator : cons.integrator
-        @show typeof(cintegrator)
-        push!(ext_type.cons, SupportedFunction(cons, Float64[], cons.params, cintegrator))
+        push!(ext_type.cons, SupportedFunction(cons, support_set.s, cons.params, cintegrator))
         push!(ext_type.cons_val, 0.0)
     end
     m.ext_type = ext_type
@@ -93,7 +93,7 @@ end
 function load_integrator!(integrator, lvbs, uvbs, xref)
     DBB.setall!(integrator, ParameterBound{Lower}(), lvbs)
     DBB.setall!(integrator, ParameterBound{Upper}(), uvbs)
-    DBB.setall!(obj_integrator, ParameterValue(), xref)
+    DBB.setall!(integrator, ParameterValue(), xref)
     return nothing
 end
 
@@ -107,12 +107,12 @@ function lower_bound_problem!(::Val{true}, t::DynamicExt, opt::EAGO.Optimizer)
 
     EAGO.update_relaxed_problem_box!(opt)
 
-    setall!(integrator, ParameterBound{Lower}(), lvbs)
-    setall!(integrator, ParameterBound{Upper}(), uvbs)
+    DBB.setall!(integrator, ParameterBound{Lower}(), lvbs)
+    DBB.setall!(integrator, ParameterBound{Upper}(), uvbs)
 
     # set reference point to evaluate relaxation
     @__dot__ opt._current_xref = 0.5*(lvbs + uvbs)
-    setall!(integrator, ParameterValue(), opt._current_xref)
+    DBB.setall!(integrator, ParameterValue(), opt._current_xref)
     @__dot__ t.p_intv = Interval(lvbs, uvbs)
     @__dot__ t.lower_storage.p_set = MC{t.np,NS}(opt._current_xref, t.p_intv, 1:t.np)
 
@@ -121,12 +121,12 @@ function lower_bound_problem!(::Val{true}, t::DynamicExt, opt::EAGO.Optimizer)
 
     for i = 1:t.nt
         support_time = t.obj.support[i]
-        get(t.lo[i], integrator, Bound{Lower}(support_time))
-        get(t.hi[i], integrator, Bound{Upper}(support_time))
-        get(t.cv[i], integrator, Relaxation{Lower}(support_time))
-        get(t.cc[i], integrator, Relaxation{Upper}(support_time))
-        get(t.cv_grad[i], integrator, Subgradient{Lower}(support_time))
-        get(t.cc_grad[i], integrator, Subgradient{Upper}(support_time))
+        DBB.get(t.lo[i], integrator, DBB.Bound{Lower}(support_time))
+        DBB.get(t.hi[i], integrator, DBB.Bound{Upper}(support_time))
+        DBB.get(t.cv[i], integrator, DBB.Relaxation{Lower}(support_time))
+        DBB.get(t.cc[i], integrator, DBB.Relaxation{Upper}(support_time))
+        DBB.get(t.cv_grad[i], integrator, DBB.Subgradient{Lower}(support_time))
+        DBB.get(t.cc_grad[i], integrator, DBB.Subgradient{Upper}(support_time))
     end
     load_intervals!(t.x_intv, t.lo, t.hi, t.nt)
 
@@ -191,7 +191,8 @@ function lower_bound_problem!(::Val{true}, t::DynamicExt, opt::EAGO.Optimizer)
     return nothing
 end
 
-function objective_relax!(::Val{true}, t::DynamicExt)
+function objective_relax!(opt, relaxed_optimizer, t::DynamicExt, integrator)
+
     for i = 1:t.nt
         support_time = t.obj.support[i]
         get(t.lo[i], integrator, Bound{Lower}(support_time))
@@ -202,15 +203,15 @@ function objective_relax!(::Val{true}, t::DynamicExt)
         get(t.cc_grad[i], integrator, Subgradient{Upper}(support_time))
     end
     load_intervals!(t.x_intv, t.lo, t.hi, t.nt)
-    load_trajectory!(t.lower_storage.x_set_traj, t.cv,
+    load_trajectory!(t.lower_storage_relax.x_set_traj, t.cv,
                      t.cc, t.x_intv, t.cv_grad, t.cc_grad)
 
-    t.lower_storage.obj_set = t.obj(t.lower_storage.x_set_traj, t.lower_storage.p_set)
-
+    t.lower_storage_relax.obj_set = t.obj(t.lower_storage_relax.x_set_traj,
+                                          t.lower_storage_relax.p_set)
     saf_temp = opt._working_problem._objective_saf
-    saf_temp.constant = t.lower_storage.obj_set.cv
+    saf_temp.constant = t.lower_storage_relax.obj_set.cv
     for i = 1:t.np
-        coeff = @inbounds t.lower_storage.obj_set.cv_grad[i]
+        coeff = @inbounds t.lower_storage_relax.obj_set.cv_grad[i]
         saf_temp.terms[i] = MOI.ScalarAffineTerm{Float64}(coeff, MOI.VariableIndex(i))
         pv = opt._current_xref[i]
         saf_temp.constant = saf_temp.constant - coeff*pv
@@ -220,37 +221,64 @@ function objective_relax!(::Val{true}, t::DynamicExt)
     return nothing
 end
 
-function objective_relax!(::Val{false}, t::DynamicExt, integrator)
+function objective_relax!(opt::EAGO.Optimizer, t::DynamicExt, integrator)
     for i = 1:t.nt
         support_time = t.obj.support[i]
         DBB.get(t.lo[i], integrator, Bound{Lower}(support_time))
         DBB.get(t.hi[i], integrator, Bound{Upper}(support_time))
     end
     load_intervals!(t.x_intv, t.lo, t.hi, t.nt)
-    for i = 1:nt
+    for i = 1:t.nt
         t.lower_storage_interval.x_set_traj.v[i] .= t.x_intv[i]
     end
     t.lower_storage_interval.obj_set = t.obj(t.lower_storage_interval.x_set_traj,
-                                             t.lower_storage.p_set)
+                                             t.lower_storage_interval.p_set)
     opt._lower_objective_value = lo(t.lower_storage_interval.obj_set)
     return nothing
 end
 
-function constraint_relax(::Val{true}, t::DynamicExt, i)
-    return nothing
+function constraint_relax(opt::EAGO.Optimizer, relaxed_optimizer, t::DynamicExt, integrator, j)
+    for i = 1:t.nt
+        support_time = t.cons[j].support[i]
+        get(t.lo[i], integrator, Bound{Lower}(support_time))
+        get(t.hi[i], integrator, Bound{Upper}(support_time))
+        get(t.cv[i], integrator, Relaxation{Lower}(support_time))
+        get(t.cc[i], integrator, Relaxation{Upper}(support_time))
+        get(t.cv_grad[i], integrator, Subgradient{Lower}(support_time))
+        get(t.cc_grad[i], integrator, Subgradient{Upper}(support_time))
+    end
+    load_intervals!(t.x_intv, t.lo, t.hi, t.nt)
+    load_trajectory!(t.lower_storage_relax.x_set_traj, t.cv, t.cc, t.x_intv, t.cv_grad, t.cc_grad)
+
+    # computes relaxation of constraint
+    cons_mc = t.cons[j].f(t.lower_storage_relax.x_set_traj, t.lower_storage_relax.p_set)
+
+    # adds linear affine function
+    sat_vec = MOI.ScalarAffineTerm{Float64}[MOI.ScalarAffineTerm{Float64}(0.0, MOI.VariableIndex(i)) for i = 1:t.np]
+    saf_temp_cons = MOI.ScalarAffineFunction{Float64}(sat_vec, -cons_mc.cv)
+    for i = 1:t.np
+        coeff = @inbounds cons_mc.cv_grad[i]
+        saf_temp_cons.terms[i] = MOI.ScalarAffineTerm{Float64}(coeff, MOI.VariableIndex(i))
+        pv = opt._current_xref[i]
+        saf_temp_cons.constant += coeff*pv
+    end
+    constant_value = saf_temp_cons.constant
+    saf_temp_cons.constant = 0.0
+    MOI.add_constraint(relaxed_optimizer, saf_temp_cons, MOI.LessThan{Float64}(constant_value))
+    return lo(cons_mc)
 end
 
-function constraint_relax(::Val{false}, t::DynamicExt, integrator, i)
+function constraint_relax(t::DynamicExt, integrator, i)
     for j = 1:t.nt
-        support_time = t.cons.support[j]
+        support_time = t.cons[i].support[j]
         get(t.lo[j], integrator, Bound{Lower}(support_time))
         get(t.hi[j], integrator, Bound{Upper}(support_time))
     end
     load_intervals!(t.x_intv, t.lo, t.hi, t.nt)
-    for j = 1:nt
+    for j = 1:t.nt
         t.lower_storage_interval.x_set_traj.v[j] .= t.x_intv[j]
     end
-    return t.cons[i].f(t.lower_storage_interval.x_set_traj, t.lower_storage.p_set)
+    return t.cons[i].f(t.lower_storage_interval.x_set_traj, t.lower_storage_interval.p_set).lo
 end
 
 function EAGO.lower_problem!(t::DynamicExt, opt::EAGO.Optimizer)
@@ -262,6 +290,8 @@ function EAGO.lower_problem!(t::DynamicExt, opt::EAGO.Optimizer)
     @__dot__ opt._current_xref = 0.5*(lvbs + uvbs)
     @__dot__ t.p_intv = Interval(lvbs, uvbs)
     @__dot__ t.lower_storage_interval.p_set = t.p_intv
+    @__dot__ t.lower_storage_relax.p_set = MC{t.np,NS}(opt._current_xref, t.p_intv, 1:t.np)
+    relaxed_optimizer = opt.relaxed_optimizer
 
     feasible = true
     support_aff = false
@@ -272,9 +302,9 @@ function EAGO.lower_problem!(t::DynamicExt, opt::EAGO.Optimizer)
         aff_flag = supports_affine(integrator)
         support_aff = support_aff || aff_flag
         if aff_flag
-            cval = constraint_relax(Val{true}(), t, integrator, i)
+            cval = constraint_relax(opt, relaxed_optimizer, t, integrator, i)
         else
-            cval = constraint_relax(Val{false}(), t, integrator, i)
+            cval = constraint_relax(t, integrator, i)
         end
         if cval > 0.0
             feasible = false
@@ -287,8 +317,12 @@ function EAGO.lower_problem!(t::DynamicExt, opt::EAGO.Optimizer)
         load_integrator!(obj_integrator, lvbs, uvbs, opt._current_xref)
         relax!(obj_integrator)
         support_aff_obj = supports_affine(obj_integrator)
-        support_aff = support_aff || support_aff_cons
-        objective_relax!(Val(support_aff_obj), t, integrator)
+        support_aff = support_aff || support_aff_obj
+        if support_aff_obj
+            objective_relax!(opt, relaxed_optimizer, t, obj_integrator)
+        else
+            objective_relax!(opt, t, obj_integrator)
+        end
 
         if support_aff
             MOI.optimize!(relaxed_optimizer)
@@ -297,13 +331,13 @@ function EAGO.lower_problem!(t::DynamicExt, opt::EAGO.Optimizer)
             valid_flag, feasible_flag = EAGO.is_globally_optimal(opt._lower_termination_status, opt._lower_result_status)
             if valid_flag
                 aff_obj = MOI.get(relaxed_optimizer, MOI.ObjectiveValue())
-                if aff_obj > lo(t.lower_storage.obj_set)
+                if aff_obj > lo(t.lower_storage_relax.obj_set)
                     opt._lower_objective_value = MOI.get(relaxed_optimizer, MOI.ObjectiveValue())
                     for i = 1:opt._working_problem._variable_count
                         opt._lower_solution[i] = MOI.get(relaxed_optimizer, MOI.VariablePrimal(), opt._relaxed_variable_index[i])
                     end
                 else
-                    opt._lower_objective_value = lo(t.lower_storage.obj_set)
+                    opt._lower_objective_value = lo(t.lower_storage_relax.obj_set)
                     opt._lower_solution = opt._current_xref
                     opt._lower_feasibility = true
                 end
@@ -339,6 +373,7 @@ function evaluate_dynamics(::Val{NP}, t, param, p, integrator) where NP
     DBB.setall!(integrator, DBB.ConstantParameterValue(), param)
     new_point = t.p_val != p
     if new_point
+        DBB.setall!(integrator, DBB.ParameterValue(), p)
         integrate!(integrator)
         for i = 1:t.nt
             support_time = t.obj.support[i]
@@ -355,7 +390,6 @@ end
 function obj_wrap(::Val{NP}, t::DynamicExt, p) where NP
     new_eval = evaluate_dynamics(Val{NP}(),t, t.obj.params, p, t.obj.integrator)
     t.obj_val = t.obj.f(t.x_traj, t.p_val)
-    @show t.obj_val, p
     return t.obj_val
 end
 
@@ -363,21 +397,19 @@ function obj_wrap(t::DynamicExt, p)
     t.scalar_temp[1] = p
     new_eval = evaluate_dynamics(Val{1}(),t, t.obj.params,t.scalar_temp, t.obj.integrator)
     t.obj_val = t.obj.f(t.x_traj, t.p_val)
-    @show t.obj_val, p
     return t.obj_val
 end
 
 function cons_wrap(::Val{NP}, t::DynamicExt, i, p) where NP
     new_eval = evaluate_dynamics(Val{NP}(), t, t.cons[i].params, p, t.cons[i].integrator)
     t.cons_val[i] = t.cons[i].f(t.x_traj, t.p_val)
-    @show t.cons_val[i], p
     return t.cons_val[i]
 end
 
 function cons_wrap(t::DynamicExt, i, p)
-    new_eval = evaluate_dynamics(Val{1}(), t, t.cons[i].params, p, t.cons[i].integrator)
+    t.scalar_temp[1] = p
+    new_eval = evaluate_dynamics(Val{1}(), t, t.cons[i].params, t.scalar_temp, t.cons[i].integrator)
     t.cons_val[i] = t.cons[i].f(t.x_traj, t.p_val)
-    @show t.cons_val[i][1], p
     return t.cons_val[i][1]
 end
 
@@ -386,7 +418,6 @@ function ∇obj_wrap!(::Val{NP}, t::DynamicExt, out, p) where NP
     set_dual_trajectory!(Val{NP}(),t, t.obj.integrator)
     obj_dual = t.obj.f(t.upper_storage.x_set_traj, t.upper_storage.p_set)
     out .= partials(obj_dual)
-    @show out, p
     return nothing
 end
 
@@ -395,7 +426,6 @@ function ∇obj_wrap(t::DynamicExt, p)
     new_eval = evaluate_dynamics(Val{1}(),t, t.obj.params, t.scalar_temp, t.obj.integrator)
     set_dual_trajectory!(Val{1}(),t, t.obj.integrator)
     obj_dual = t.obj.f(t.upper_storage.x_set_traj, t.upper_storage.p_set)
-    @show partials(obj_dual, 1), p
     return partials(obj_dual, 1)
 end
 
@@ -404,16 +434,14 @@ function ∇cons_wrap!(::Val{NP}, t::DynamicExt, out, i, p) where NP
     set_dual_trajectory!(Val{NP}(),t, t.cons[i].integrator)
     cons_dual = t.cons[i].f(t.upper_storage.x_set_traj, t.upper_storage.p_set)
     out .= partials(cons_dual)
-    @show out, p
     return nothing
 end
 
 function ∇cons_wrap(t::DynamicExt, i, p)
     t.scalar_temp[1] = p
-    new_eval = evaluate_dynamics(Val{1}(), t, t.cons[i].params, p, t.cons[i].integrator)
+    new_eval = evaluate_dynamics(Val{1}(), t, t.cons[i].params, t.scalar_temp, t.cons[i].integrator)
     set_dual_trajectory!(Val{1}(),t, t.cons[i].integrator)
     cons_dual = t.cons[i].f(t.upper_storage.x_set_traj, t.upper_storage.p_set)
-    @show partials(cons_dual, 1), p
     return partials(cons_dual, 1)
 end
 
@@ -448,21 +476,21 @@ function EAGO.upper_problem!(q::DynamicExt, opt::EAGO.Optimizer)
 
     model = Model(Ipopt.Optimizer)
     set_optimizer_attribute(model, "hessian_approximation", "limited-memory")
-    set_optimizer_attribute(model, "print_level", 0)
+    set_optimizer_attribute(model, "print_level", 1)
     @variable(model, lvbs[i] <= p[i=1:q.np] <= uvbs[i])
 
     DBB.set!(q.integrator, DBB.LocalSensitivityOn(), true)
 
     # define the objective
     if isone(q.np)
-        JuMP.register(model, :obj, 1, p -> obj_wrap(q, p),
-                                      p -> ∇obj_wrap(q, p),
+        JuMP.register(model, :obj, 1, p -> obj_wrap(deepcopy(q), p),
+                                      p -> ∇obj_wrap(deepcopy(q), p),
                                       p -> error("Hessian called but is currently disabled."))
 
         nl_obj = :(obj($(p[1])))
     else
-        JuMP.register(model, :obj, np, (p...) -> obj_wrap(Val{np}(), q, p),
-                                       (out, p...) -> ∇obj_wrap!(Val{np}(), q, out, p),
+        JuMP.register(model, :obj, np, (p...) -> obj_wrap(Val{np}(), deepcopy(q), p),
+                                       (out, p...) -> ∇obj_wrap!(Val{np}(), deepcopy(q), out, p),
                                        (out, p...) -> error("Hessian called but is currently disabled."))
         nl_obj = Expr(:call)
         push!(nl_obj.args, :obj)
@@ -475,15 +503,15 @@ function EAGO.upper_problem!(q::DynamicExt, opt::EAGO.Optimizer)
     for (i,cons) in enumerate(q.cons)
         cons_udf_sym = Symbol("cons_udf_$i")
         if isone(q.np)
-            JuMP.register(model, cons_udf_sym, 1, p -> cons_wrap(q, i, p),
-                                                  p -> ∇cons_wrap(q, i, p),
+            JuMP.register(model, cons_udf_sym, 1, p -> cons_wrap(deepcopy(q), i, p),
+                                                  p -> ∇cons_wrap(deepcopy(q), i, p),
                                                   p -> error("Hessian called but is currently disabled."))
 
             JuMP.add_NL_constraint(model, :(($cons_udf_sym)($(p[1])) <= 0))
         else
             JuMP.register(model, cons_udf_sym, np,
-                                 (p...) -> cons_wrap(Val{np}(), q, i, p),
-                                 (out, p...) -> ∇cons_wrap!(Val{np}(),q,i,out,p),
+                                 (p...) -> cons_wrap(Val{np}(), deepcopy(q), i, p),
+                                 (out, p...) -> ∇cons_wrap!(Val{np}(),deepcopy(q),i,out,p),
                                  (out, p...) -> error("Hessian called but is currently disabled."))
 
             gic = Expr(:call)
@@ -499,7 +527,6 @@ function EAGO.upper_problem!(q::DynamicExt, opt::EAGO.Optimizer)
     t_status = JuMP.termination_status(model)
     r_status = JuMP.primal_status(model)
     feas = EAGO.is_feasible_solution(t_status, r_status)
-    @show t_status, r_status, feas
 
     if feas
         EAGO.stored_adjusted_upper_bound!(opt, objective_value(model))
