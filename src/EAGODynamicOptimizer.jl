@@ -22,7 +22,7 @@ using ForwardDiff: Dual, Partials, construct_seeds, partials
 
 import EAGO: preprocess!, postprocess!, lower_problem!,
              upper_problem!, cut_condition, ExtensionType,
-             build_model, sip_llp!, sip_bnd!
+             build_model, sip_llp!, sip_bnd!, set_tolerance!
 
 import Base: getindex, setindex!
 

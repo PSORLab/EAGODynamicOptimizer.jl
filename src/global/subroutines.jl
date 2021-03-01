@@ -11,6 +11,11 @@
 # Defines the DynamicExt and extends EAGO subroutines used in branch and bound.
 #############################################################################
 
+
+struct NoIntegrator <: DBB.AbstractODERelaxIntegrator
+end
+
+
 function supports_affine(integrator)
     supports(integrator, Relaxation{Lower}()) &&
     supports(integrator, Relaxation{Upper}()) &&
@@ -61,10 +66,12 @@ function EAGO.presolve_global!(t::DynamicExt{T}, m::EAGO.Optimizer) where T
     ext_type = DynamicExt(integrator, np, nx, nt, zero(MC{np, NS}))
 
     load_check_support!(Val{np}(), ext_type, support_set, nt, nx, zero(MC{np, NS}))
-    if last_obj.integrator === nothing
-        ext_type.obj = SupportedFunction(last_obj, support_set.s, last_obj.params, integrator)
-    else
-        ext_type.obj = SupportedFunction(last_obj, support_set.s, last_obj.params, last_obj.integrator)
+    if last_obj !== nothing
+        if last_obj.integrator === nothing
+            ext_type.obj = SupportedFunction(last_obj, support_set.s, last_obj.params, integrator)
+        else
+            ext_type.obj = SupportedFunction(last_obj, support_set.s, last_obj.params, last_obj.integrator)
+        end
     end
     ext_type.lower_storage_interval.x_set_traj.nt = nt
     ext_type.lower_storage_interval.x_set_traj.nx = nx
@@ -314,14 +321,24 @@ function EAGO.lower_problem!(t::DynamicExt, opt::EAGO.Optimizer)
 
     if feasible
         obj_integrator = t.obj.integrator
-        load_integrator!(obj_integrator, lvbs, uvbs, opt._current_xref)
-        relax!(obj_integrator)
-        support_aff_obj = supports_affine(obj_integrator)
-        support_aff = support_aff || support_aff_obj
-        if support_aff_obj
-            objective_relax!(opt, relaxed_optimizer, t, obj_integrator)
+        if obj_integrator !== NoIntegrator()
+            load_integrator!(obj_integrator, lvbs, uvbs, opt._current_xref)
+            relax!(obj_integrator)
+            support_aff_obj = supports_affine(obj_integrator)
+            support_aff = support_aff || support_aff_obj
+            if support_aff
+                objective_relax!(opt, relaxed_optimizer, t, obj_integrator)
+            else
+                objective_relax!(opt, t, obj_integrator)
+            end
         else
-            objective_relax!(opt, t, obj_integrator)
+            if support_aff
+                t.lower_storage_relax.obj_set = t.obj(t.lower_storage_interval.x_set_traj,
+                                                      t.lower_storage_interval.p_set)
+            else
+                t.lower_storage_relax.obj_set = t.obj(t.lower_storage_relax.x_set_traj,
+                                                      t.lower_storage_relax.p_set)
+            end
         end
 
         if support_aff
@@ -342,7 +359,10 @@ function EAGO.lower_problem!(t::DynamicExt, opt::EAGO.Optimizer)
                     opt._lower_feasibility = true
                 end
             end
-            opt._lower_objective_value = MOI.get(relaxed_optimizer, MOI.ObjectiveValue())
+        else
+            opt._lower_objective_value = lo(t.lower_storage_relax.obj_set)
+            opt._lower_solution = opt._current_xref
+            opt._lower_feasibility = true
         end
     else
         opt._lower_objective_value = -Inf
@@ -445,18 +465,21 @@ function ∇cons_wrap(t::DynamicExt, i, p)
     return partials(cons_dual, 1)
 end
 
-function upper_problem_obj_only!(q::DynamicExt, opt::EAGO.Optimizer)
+function upper_problem_obj_only!(q::DynamicExt, opt::EAGO.Optimizer, lvbs, uvbs)
     t = opt.ext_type
 
     # get all at particular points???
     DBB.set!(t.integrator, DBB.LocalSensitivityOn(), false)
 
-    integrate!(t.integrator)
-    getall!(t.p_val, t.integrator, DBB.ParameterValue())
-    for i = 1:t.nt
-        support_time = t.obj.support[i]
-        get(t.x_val[i], t.integrator, DBB.Value(support_time))
-        t.x_traj.v[i] .= t.x_val[i]
+    obj_integrator = t.obj.integrator
+    @__dot__ t.p_val = 0.5*(lvbs + uvbs)
+    if obj_integrator !== NoIntegrator()
+        integrate!(obj_integrator)
+        for i = 1:t.nt
+            support_time = t.obj.support[i]
+            get(t.x_val[i], obj_integrator, DBB.Value(support_time))
+            t.x_traj.v[i] .= t.x_val[i]
+        end
     end
     t.obj_val = t.obj.f(t.x_traj, t.p_val)
     opt._upper_objective_value = t.obj_val
@@ -467,13 +490,12 @@ function upper_problem_obj_only!(q::DynamicExt, opt::EAGO.Optimizer)
 end
 
 function EAGO.upper_problem!(q::DynamicExt, opt::EAGO.Optimizer)
-    isempty(q.cons) && return upper_problem_obj_only!(q, opt)
-
     n = opt._current_node
     lvbs = n.lower_variable_bounds
     uvbs = n.upper_variable_bounds
-    np = q.np
+    isempty(q.cons) && return upper_problem_obj_only!(q, opt, lvbs, uvbs)
 
+    np = q.np
     model = Model(Ipopt.Optimizer)
     set_optimizer_attribute(model, "hessian_approximation", "limited-memory")
     set_optimizer_attribute(model, "print_level", 1)

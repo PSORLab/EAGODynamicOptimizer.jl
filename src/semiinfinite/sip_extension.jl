@@ -10,7 +10,6 @@
 # src/semiinfinite/sip_extension.jl
 # Defines the SIPDynamicExt and extends EAGO SIP subroutines.
 #############################################################################
-
 mutable struct SIPDynamicExt{P,T} <: EAGO.ExtensionType
     prob::P
     temp_prob::P
@@ -26,8 +25,39 @@ function SIPDynamicExt(integrator_factory, prob)
                                                        llp_ext, bnd_ext)
 end
 
+
+function EAGO.set_tolerance!(t::SIPDynamicExt, alg::SIPResRev, s::LowerLevel1, m::JuMP.Model, sr::SIPSubResult, i::Int)
+    EAGO.set_tolerance_inner!(EAGO.DefaultExt(), alg, s, m, sr.eps_l[i])
+end
+function EAGO.set_tolerance!(t::SIPDynamicExt, alg::SIPResRev, s::LowerLevel2, m::JuMP.Model, sr::SIPSubResult, i::Int)
+    EAGO.set_tolerance_inner!(EAGO.DefaultExt(), alg, s, m, sr.eps_u[i])
+end
+function EAGO.set_tolerance!(t::SIPDynamicExt, alg::SIPResRev, s::LowerProblem, m::JuMP.Model, sr::SIPSubResult, i::Int)
+    EAGO.set_tolerance_inner!(EAGO.DefaultExt(), alg, s, m, sr.lbd.tol)
+end
+function EAGO.set_tolerance!(t::SIPDynamicExt, alg::SIPResRev, s::UpperProblem, m::JuMP.Model, sr::SIPSubResult, i::Int)
+    EAGO.set_tolerance_inner!(EAGO.DefaultExt(), alg, s, m, sr.ubd.tol)
+end
+
+function EAGO.set_tolerance!(t::SIPDynamicExt, alg::SIPHybrid, s::LowerLevel1, m::JuMP.Model, sr::SIPSubResult, i::Int)
+    EAGO.set_tolerance_inner!(EAGO.DefaultExt(), alg, s, m, sr.eps_l[i])
+end
+function EAGO.set_tolerance!(t::SIPDynamicExt, alg::SIPHybrid, s::LowerLevel2, m::JuMP.Model, sr::SIPSubResult, i::Int)
+    EAGO.set_tolerance_inner!(EAGO.DefaultExt(), alg, s, m, sr.eps_u[i])
+end
+function EAGO.set_tolerance!(t::SIPDynamicExt, alg::SIPHybrid, s::LowerProblem, m::JuMP.Model, sr::SIPSubResult, i::Int)
+    EAGO.set_tolerance_inner!(EAGO.DefaultExt(), alg, s, m, sr.lbd.tol)
+end
+function EAGO.set_tolerance!(t::SIPDynamicExt, alg::SIPHybrid, s::UpperProblem, m::JuMP.Model, sr::SIPSubResult, i::Int)
+    EAGO.set_tolerance_inner!(EAGO.DefaultExt(), alg, s, m, sr.ubd.tol)
+end
+
+function EAGO.get_xbar(t::SIPDynamicExt, alg::A, s::P, sr::EAGO.SIPSubResult) where {A <: EAGO.AbstractSIPAlgo, P <: Union{LowerLevel1,LowerLevel2,LowerLevel3}}
+    EAGO.get_xbar(EAGO.DefaultExt(), alg, s, sr)
+end
+
 function get_ext(m::SIPDynamicExt{T}, s::S) where {T, S <: Union{LowerLevel1,LowerLevel2,LowerLevel3}}
-    m.llp
+    m.llp_ext
 end
 function get_ext(m::SIPDynamicExt{T}, s::S) where {T, S <: Union{LowerProblem,UpperProblem,ResProblem}}
     m.bnd_ext
@@ -36,7 +66,6 @@ end
 function EAGO.build_model(t::SIPDynamicExt{T}, a::A, s::S, p::SIPProblem) where {T, A <: AbstractSIPAlgo, S <: AbstractSubproblemType}
     vL, vU, nv = EAGO.get_bnds(s,p)
     ext = get_ext(t,s)
-    DBB.set!(ext.integrator, DBB.ConstantParameterValue(), pbar)
     DBB.setall!(ext.integrator, DBB.ParameterBound{Lower}(), vL)
     DBB.setall!(ext.integrator, DBB.ParameterBound{Upper}(), vU)
     model, v = EAGODynamicModel(ext)
@@ -54,11 +83,17 @@ function EAGO.sip_llp!(t::SIPDynamicExt{T}, alg::A, s::S, result::SIPResult,
     xbar = EAGO.get_xbar(t, alg, s, sr)
 
     # update rhs and x0 function in problem
-    set!(llp_ext.intregator, DBB.ConstantParameterValue(), xbar)
+    llp_ext = get_ext(t,s)
 
     # define the objective
-    add_supported_objective!(m, (y, p, x) -> -cb.gSIP[i](y, x, p), xbar)
-
+    ode_prob = t.prob
+    fnew = (dy,y,p) -> ode_prob.f!(dy,y,p,xbar)
+    x0new = p -> ode_prob.x0(p,xbar)
+    temp_prob = ODERelaxProb(fnew, ode_prob.tspan, x0new, ode_prob.pL, ode_prob.pU, ode_prob.kwargs)
+    obj_integrator = t.integrator_factory(temp_prob)
+    add_supported_objective!(m,
+                            (y, p) -> -cb.gSIP[i](y, xbar, p),
+                             xbar, integrator = obj_integrator)
     # optimize model and check status
     JuMP.optimize!(m)
     tstatus = JuMP.termination_status(m)
@@ -80,28 +115,25 @@ function EAGO.sip_bnd!(t::SIPDynamicExt{T}, alg::A, s::S, sr::SIPSubResult, resu
     # create JuMP model
     m, x = build_model(t, alg, s, prob)
 
-    #fnew = (dy,y,p) -> prob.f!(dy,y,xbar,p)
-    #x0new = p -> prob.x0(xbar,p)
-    #temp_prob = ODERelaxProb(fnew, prob.tspan, x0new, prob.pL, prob.pU,
-    #                         Jx! = prob.Jx!, Jp! = prob.Jp!, prob.kwargs)
-    #t.llp_ext = DynamicExt(t.integrator_factory(temp_prob))
-    #set_optimizer_attribute(m, "ext_type", t.llp_ext)
-
-    integrator = integrator_factory(prob)
-
     for i = 1:prob.nSIP
         ϵ_g = EAGO.get_eps(s, sr, i)
         disc_set = EAGO.get_disc_set(t, alg, s, sr, i)
         for j = 1:length(disc_set)
             pbar = disc_set[j]
-            add_supported_constraint!(m, (y, x, p) -> cb.gSIP[i](y, x, p) + ϵ_g, pbar)
+            ode_prob = t.prob
+            fnew = (dy,y,u) -> ode_prob.f!(dy,y,pbar,u)
+            x0new = u -> ode_prob.x0(pbar,u)
+            temp_prob = ODERelaxProb(fnew, ode_prob.tspan, x0new, ode_prob.pL, ode_prob.pU, ode_prob.kwargs...)
+            cons_integrator = t.integrator_factory(temp_prob)
+            add_supported_constraint!(m,
+                                      (y, x) -> cb.gSIP[i](y, x, pbar) + ϵ_g,
+                                      pbar,
+                                      integrator = cons_integrator)
         end
     end
 
     # define the objective
-    add_supported_objective!(m, cb.f)
-
-    # reset rhs function !
+    add_supported_objective!(m, Float64[], (y, x) -> cb.f(x), NoIntegrator())
 
     # optimize model and check status
     JuMP.optimize!(m)
