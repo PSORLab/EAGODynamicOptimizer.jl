@@ -333,11 +333,11 @@ function EAGO.lower_problem!(t::DynamicExt, opt::EAGO.Optimizer)
             end
         else
             if support_aff
-                t.lower_storage_relax.obj_set = t.obj(t.lower_storage_interval.x_set_traj,
-                                                      t.lower_storage_interval.p_set)
-            else
                 t.lower_storage_relax.obj_set = t.obj(t.lower_storage_relax.x_set_traj,
                                                       t.lower_storage_relax.p_set)
+            else
+                t.lower_storage_interval.obj_set = t.obj(t.lower_storage_interval.x_set_traj,
+                                                      t.lower_storage_interval.p_set)
             end
         end
 
@@ -360,7 +360,7 @@ function EAGO.lower_problem!(t::DynamicExt, opt::EAGO.Optimizer)
                 end
             end
         else
-            opt._lower_objective_value = lo(t.lower_storage_relax.obj_set)
+            opt._lower_objective_value = lo(t.lower_storage_interval.obj_set)
             opt._lower_solution = opt._current_xref
             opt._lower_feasibility = true
         end

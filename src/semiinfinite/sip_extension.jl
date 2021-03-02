@@ -81,24 +81,26 @@ function EAGO.sip_llp!(t::SIPDynamicExt{T}, alg::A, s::S, result::SIPResult,
     m, p = build_model(t, alg, s, prob)
     EAGO.set_tolerance!(t, alg, s, m, sr, i)
     xbar = EAGO.get_xbar(t, alg, s, sr)
+    @show xbar
 
     # update rhs and x0 function in problem
     llp_ext = get_ext(t,s)
 
     # define the objective
     ode_prob = t.prob
-    fnew = (dy,y,p) -> ode_prob.f!(dy,y,p,xbar)
+    fnew = (dy,y,p,t) -> ode_prob.f.f(dy,y,xbar,p,t)
     x0new = p -> ode_prob.x0(p,xbar)
-    temp_prob = ODERelaxProb(fnew, ode_prob.tspan, x0new, ode_prob.pL, ode_prob.pU, ode_prob.kwargs)
+    temp_prob = ODERelaxProb(fnew, ode_prob.tspan, x0new, ode_prob.pL, ode_prob.pU)
+    DBB.set!(temp_prob, DBB.get(ode_prob, DBB.SupportSet()))
     obj_integrator = t.integrator_factory(temp_prob)
-    add_supported_objective!(m,
-                            (y, p) -> -cb.gSIP[i](y, xbar, p),
-                             xbar, integrator = obj_integrator)
+    add_supported_objective!(m, xbar,
+                             (y, p) -> -cb.gSIP[i](y, xbar, p),
+                             obj_integrator)
     # optimize model and check status
     JuMP.optimize!(m)
     tstatus = JuMP.termination_status(m)
     rstatus = JuMP.primal_status(m)
-    feas = llp_check(prob.local_solver, tstatus, rstatus)
+    feas = EAGO.llp_check(prob.local_solver, tstatus, rstatus)
 
     # fill buffer with subproblem result info
     psol = JuMP.value.(p)
@@ -121,19 +123,19 @@ function EAGO.sip_bnd!(t::SIPDynamicExt{T}, alg::A, s::S, sr::SIPSubResult, resu
         for j = 1:length(disc_set)
             pbar = disc_set[j]
             ode_prob = t.prob
-            fnew = (dy,y,u) -> ode_prob.f!(dy,y,pbar,u)
-            x0new = u -> ode_prob.x0(pbar,u)
-            temp_prob = ODERelaxProb(fnew, ode_prob.tspan, x0new, ode_prob.pL, ode_prob.pU, ode_prob.kwargs...)
+            x0new = u -> ode_prob.x0(u,pbar)
+            fnew = (dy,y,u,t) -> ode_prob.f.f(dy,y,u,pbar,t)
+            temp_prob = ODERelaxProb(fnew, ode_prob.tspan, x0new, ode_prob.pL, ode_prob.pU)
+            DBB.set!(temp_prob, DBB.get(ode_prob, DBB.SupportSet()))
             cons_integrator = t.integrator_factory(temp_prob)
             add_supported_constraint!(m,
                                       (y, x) -> cb.gSIP[i](y, x, pbar) + ϵ_g,
-                                      pbar,
-                                      integrator = cons_integrator)
+                                      cons_integrator)
         end
     end
 
     # define the objective
-    add_supported_objective!(m, Float64[], (y, x) -> cb.f(x), NoIntegrator())
+    add_supported_objective!(m, Float64[], (y,x) -> cb.f(x), NoIntegrator())
 
     # optimize model and check status
     JuMP.optimize!(m)
