@@ -81,7 +81,6 @@ function EAGO.sip_llp!(t::SIPDynamicExt{T}, alg::A, s::S, result::SIPResult,
     m, p = build_model(t, alg, s, prob)
     EAGO.set_tolerance!(t, alg, s, m, sr, i)
     xbar = EAGO.get_xbar(t, alg, s, sr)
-    @show xbar
 
     # update rhs and x0 function in problem
     llp_ext = get_ext(t,s)
