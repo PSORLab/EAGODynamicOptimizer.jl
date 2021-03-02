@@ -1,4 +1,4 @@
-# EAGODynamicOptimizer.jl
+# EAGODynamicOptimizer.jl [In Development]
 Extension of the EAGO to Problems with Parametric Differential Equation Constraints
 
 ## Intended Scope
@@ -26,6 +26,11 @@ state variables and in turn supported objectives and constraints for a given
 - `add_supported_objective!(t::Model, obj)`:
 
 ## Usage
+This package currently, isn't registered (early days still).
+You'll need to clone this repository in order to use it, like so:
+```julia
+using Pkg; Pkg.clone("https://github.com/PSORLab/EAGODynamicOptimizer.jl.git")
+```
 
 In the below section, EAGODynamicOptimizer.jl is used solve the kinetic
 parameter estimation problem [1,2] wherein the problem is integrated using
