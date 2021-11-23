@@ -299,6 +299,7 @@ function EAGO.lower_problem!(t::DynamicExt, opt::EAGO.Optimizer)
     @__dot__ t.lower_storage_interval.p_set = t.p_intv
     @__dot__ t.lower_storage_relax.p_set = MC{t.np,NS}(opt._current_xref, t.p_intv, 1:t.np)
     relaxed_optimizer = opt.relaxed_optimizer
+    EAGO.update_relaxed_problem_box!(opt)
 
     feasible = true
     support_aff = false
