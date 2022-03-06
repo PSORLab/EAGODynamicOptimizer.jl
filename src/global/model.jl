@@ -11,7 +11,7 @@
 # Creates a JuMP model with a EAGO.Optimizer and a DynamicExt set.
 #############################################################################
 
-function EAGODynamicModel(ext::DynamicExt, kwargs...)
+function EAGODynamicModel(ext::DynamicExt{T}, kwargs...) where T
 
     # get bounds on decision variable
     pL = DBB.getall(ext.integrator, DBB.ParameterBound{Lower}())
@@ -19,10 +19,12 @@ function EAGODynamicModel(ext::DynamicExt, kwargs...)
     np = DBB.get(ext.integrator, DBB.ParameterNumber())
 
     # initialize model and variables
-    m = Model(optimizer_with_attributes(EAGO.Optimizer, kwargs...))
+    new_factory = () -> EAGO.Optimizer(SubSolvers(; t = ext))
+    m  = Model(optimizer_with_attributes(new_factory, kwargs...))
     set_optimizer_attribute(m, "ext", ext)
     set_optimizer_attribute(m, "branch_variable", Bool[true for i in 1:np])
-
+    set_optimizer_attribute(m, "enable_optimize_hook", true)
+    
     p = @variable(m, pL[i] <= p[i = 1:np] <= pU[i])
 
     return m, p

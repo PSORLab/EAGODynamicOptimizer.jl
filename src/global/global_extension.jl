@@ -111,46 +111,46 @@ end
 Base.eltype(::DynamicExt{T}) where T = T
 
 function add_supported_objective!(t::Model, obj)
-    ext_type = get_optimizer_attribute(t, "ext_type")
-    ext_type.obj = SupportedFunction(obj, Float64[], ext_type.integrator)
-    set_optimizer_attribute(t, "ext_type", ext_type)
+    ext = get_optimizer_attribute(t, "ext")
+    ext.obj = SupportedFunction(obj, Float64[], ext.integrator)
+    set_optimizer_attribute(t, "ext", ext)
     return nothing
 end
 
 function add_supported_objective!(t::Model, obj, integrator)
-    ext_type = get_optimizer_attribute(t, "ext_type")
-    ext_type.obj = SupportedFunction(obj, Float64[], integrator)
-    set_optimizer_attribute(t, "ext_type", ext_type)
+    ext = get_optimizer_attribute(t, "ext")
+    ext.obj = SupportedFunction(obj, Float64[], integrator)
+    set_optimizer_attribute(t, "ext", ext)
     return nothing
 end
 
 function add_supported_objective!(t::Model, params::Vector{Float64}, obj)
-    ext_type = get_optimizer_attribute(t, "ext_type")
-    ext_type.obj = SupportedFunction(obj, Float64[], params, ext_type.integrator)
-    set_optimizer_attribute(t, "ext_type", ext_type)
+    ext = get_optimizer_attribute(t, "ext")
+    ext.obj = SupportedFunction(obj, Float64[], params, ext.integrator)
+    set_optimizer_attribute(t, "ext", ext)
     return nothing
 end
 
 function add_supported_objective!(t::Model, params::Vector{Float64}, obj, integrator)
-    ext_type = get_optimizer_attribute(t, "ext_type")
-    ext_type.obj = SupportedFunction(obj, Float64[], params, integrator)
-    set_optimizer_attribute(t, "ext_type", ext_type)
+    ext = get_optimizer_attribute(t, "ext")
+    ext.obj = SupportedFunction(obj, Float64[], params, integrator)
+    set_optimizer_attribute(t, "ext", ext)
     return nothing
 end
 
 function add_supported_constraint!(t::Model, cons)
-    ext_type = get_optimizer_attribute(t, "ext_type")
-    push!(ext_type.cons, SupportedFunction(cons, Float64[], ext_type.integrator))
-    push!(ext_type.cons_val, 0.0)
-    set_optimizer_attribute(t, "ext_type", ext_type)
+    ext = get_optimizer_attribute(t, "ext")
+    push!(ext.cons, SupportedFunction(cons, Float64[], ext.integrator))
+    push!(ext.cons_val, 0.0)
+    set_optimizer_attribute(t, "ext", ext)
     return nothing
 end
 
 function add_supported_constraint!(t::Model, cons, integrator)
-    ext_type = get_optimizer_attribute(t, "ext_type")
-    push!(ext_type.cons, SupportedFunction(cons, Float64[], integrator))
-    push!(ext_type.cons_val, 0.0)
-    set_optimizer_attribute(t, "ext_type", ext_type)
+    ext = get_optimizer_attribute(t, "ext")
+    push!(ext.cons, SupportedFunction(cons, Float64[], integrator))
+    push!(ext.cons_val, 0.0)
+    set_optimizer_attribute(t, "ext", ext)
     return nothing
 end
 

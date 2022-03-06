@@ -58,7 +58,8 @@ dynamic_ext = DynamicExt(DifferentialInequality(pode_problem,
 =#
 dynamic_ext = DynamicExt(DynamicBoundspODEsDiscrete.Wilhelm2019(pode_problem, DynamicBoundspODEsDiscrete.AM2()))
 
-m, y = EAGODynamicModel(dynamic_ext, "verbosity" => 1,
+println("")
+m, y = EAGODynamicModel(dynamic_ext, "verbosity" => 4,
                         "output_iterations" => 100,
                         "time_limit" => 7200.0,
                         "log_on" => true,
@@ -84,7 +85,10 @@ println(" ")
 println("optimize start")
 optimize!(m)
 bm = backend(m)
-bm_ext = bm.optimizer.model.optimizer.ext_type
+@show typeof(bm)
+bm_m = bm.optimizer.model
+@show typeof(bm_m)
+#bm_m_ext = bm_m.optimizer.ext_type
 println("optimize end")
 
 obj_value = objective_value(m)
