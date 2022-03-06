@@ -20,7 +20,7 @@ function EAGODynamicModel(ext::DynamicExt, kwargs...)
 
     # initialize model and variables
     m = Model(optimizer_with_attributes(EAGO.Optimizer, kwargs...))
-    set_optimizer_attribute(m, "ext_type", ext)
+    set_optimizer_attribute(m, "ext", ext)
     set_optimizer_attribute(m, "branch_variable", Bool[true for i in 1:np])
 
     p = @variable(m, pL[i] <= p[i = 1:np] <= pU[i])
