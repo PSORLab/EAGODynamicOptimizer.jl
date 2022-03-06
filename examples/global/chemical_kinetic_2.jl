@@ -3,7 +3,7 @@ using JuMP, EAGODynamicOptimizer, DynamicBoundsBase,
 
 using DataFrames, CSV
 
-data = CSV.read("C:\\Users\\wilhe\\Desktop\\Package Development\\EAGODynamicOptimizer.jl\\examples\\kinetic_intensity_data.csv", DataFrame)
+data = CSV.read(joinpath(@__DIR__,"kinetic_intensity_data.csv"), DataFrame)
 data_dict = Dict{Float64,Float64}()
 for r in eachrow(data)
     data_dict[r.time] = r.intensity
@@ -56,9 +56,7 @@ dynamic_ext = DynamicExt(DifferentialInequality(pode_problem,
                                                 calculate_relax = true,
                                                 calculate_subgradient = true))
 =#
-dynamic_ext = DynamicExt(DiscretizeRelax(pode_problem, DynamicBoundspODEsDiscrete.LohnerContractor{8}(),
-                                         h = 1/ticks, repeat_limit = 1, skip_step2 = false,
-                                         step_limit = steps, relax = false, tol= tol))
+dynamic_ext = DynamicExt(DynamicBoundspODEsDiscrete.Wilhelm2019(pode_problem, DynamicBoundspODEsDiscrete.AM2()))
 
 m, y = EAGODynamicModel(dynamic_ext, "verbosity" => 1,
                         "output_iterations" => 100,
