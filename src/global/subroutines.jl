@@ -72,17 +72,22 @@ function EAGO.presolve_global!(t::DynamicExt{T}, m::EAGO.GlobalOptimizer) where 
         push!(ext_type.cons, SupportedFunction(cons, support_set.s, cons.params, cintegrator))
         push!(ext_type.cons_val, 0.0)
     end
-    m.ext = ext_type
+    m._subsolvers.ext = ext_type
     m._presolve_time = time() - m._parse_time
+
+    vi = m._working_problem._variable_info
+    @show vi
+    n = EAGO.NodeBB(EAGO.lower_bound.(vi), EAGO.upper_bound.(vi), EAGO.is_integer.(vi))
+    m._current_node = n
 
     return nothing
 end
 
 
 function load_integrator!(integrator, lvbs, uvbs, xref)
-    DBB.setall!(integrator, ParameterBound{Lower}(), lvbs)
-    DBB.setall!(integrator, ParameterBound{Upper}(), uvbs)
-    DBB.setall!(integrator, ParameterValue(), xref)
+    DBB.setall!(integrator, DBB.ParameterBound{Lower}(), lvbs)
+    DBB.setall!(integrator, DBB.ParameterBound{Upper}(), uvbs)
+    DBB.setall!(integrator, DBB.ParameterValue(), xref)
     return nothing
 end
 
@@ -96,8 +101,8 @@ function lower_bound_problem!(::Val{true}, t::DynamicExt, opt::EAGO.GlobalOptimi
 
     EAGO.update_relaxed_problem_box!(opt)
 
-    DBB.setall!(integrator, ParameterBound{Lower}(), lvbs)
-    DBB.setall!(integrator, ParameterBound{Upper}(), uvbs)
+    DBB.setall!(integrator, DBB.ParameterBound{Lower}(), lvbs)
+    DBB.setall!(integrator, DBB.ParameterBound{Upper}(), uvbs)
 
     # set reference point to evaluate relaxation
     @__dot__ opt._current_xref = 0.5*(lvbs + uvbs)
@@ -182,14 +187,17 @@ end
 
 function objective_relax!(opt, relaxed_optimizer, t::DynamicExt, integrator)
 
+    @show t.nt
+    @show t.obj.support
     for i = 1:t.nt
         support_time = t.obj.support[i]
-        get(t.lo[i], integrator, Bound{Lower}(support_time))
-        get(t.hi[i], integrator, Bound{Upper}(support_time))
-        get(t.cv[i], integrator, Relaxation{Lower}(support_time))
-        get(t.cc[i], integrator, Relaxation{Upper}(support_time))
-        get(t.cv_grad[i], integrator, Subgradient{Lower}(support_time))
-        get(t.cc_grad[i], integrator, Subgradient{Upper}(support_time))
+        @show support_time
+        DBB.get!(t.lo[i], integrator, DBB.Bound{Lower}(DBB.TimeIndex(i)))
+        DBB.get!(t.hi[i], integrator, DBB.Bound{Upper}(DBB.TimeIndex(i)))
+        DBB.get!(t.cv[i], integrator, DBB.Relaxation{Lower}(DBB.TimeIndex(i)))
+        DBB.get!(t.cc[i], integrator, DBB.Relaxation{Upper}(DBB.TimeIndex(i)))
+        DBB.get!(t.cv_grad[i], integrator, DBB.Subgradient{Lower}(DBB.TimeIndex(i)))
+        DBB.get!(t.cc_grad[i], integrator, DBB.Subgradient{Upper}(DBB.TimeIndex(i)))
     end
     load_intervals!(t.x_intv, t.lo, t.hi, t.nt)
     load_trajectory!(t.lower_storage_relax.x_set_traj, t.cv,
@@ -213,8 +221,8 @@ end
 function objective_relax!(opt::EAGO.GlobalOptimizer, t::DynamicExt, integrator)
     for i = 1:t.nt
         support_time = t.obj.support[i]
-        DBB.get(t.lo[i], integrator, Bound{Lower}(support_time))
-        DBB.get(t.hi[i], integrator, Bound{Upper}(support_time))
+        DBB.get(t.lo[i], integrator, DBB.Bound{Lower}(DBB.TimeIndex(i)))
+        DBB.get(t.hi[i], integrator, DBB.Bound{Upper}(DBB.TimeIndex(i)))
     end
     load_intervals!(t.x_intv, t.lo, t.hi, t.nt)
     for i = 1:t.nt
@@ -229,12 +237,12 @@ end
 function constraint_relax(opt::EAGO.GlobalOptimizer, relaxed_optimizer, t::DynamicExt, integrator, j)
     for i = 1:t.nt
         support_time = t.cons[j].support[i]
-        get(t.lo[i], integrator, Bound{Lower}(support_time))
-        get(t.hi[i], integrator, Bound{Upper}(support_time))
-        get(t.cv[i], integrator, Relaxation{Lower}(support_time))
-        get(t.cc[i], integrator, Relaxation{Upper}(support_time))
-        get(t.cv_grad[i], integrator, Subgradient{Lower}(support_time))
-        get(t.cc_grad[i], integrator, Subgradient{Upper}(support_time))
+        DBB.get(t.lo[i], integrator, DBB.Bound{Lower}(DBB.TimeIndex(i)))
+        DBB.get(t.hi[i], integrator, DBB.Bound{Upper}(DBB.TimeIndex(i)))
+        DBB.get(t.cv[i], integrator, DBB.Relaxation{Lower}(DBB.TimeIndex(i)))
+        DBB.get(t.cc[i], integrator, DBB.Relaxation{Upper}(DBB.TimeIndex(i)))
+        DBB.get(t.cv_grad[i], integrator, DBB.Subgradient{Lower}(DBB.TimeIndex(i)))
+        DBB.get(t.cc_grad[i], integrator, DBB.Subgradient{Upper}(DBB.TimeIndex(i)))
     end
     load_intervals!(t.x_intv, t.lo, t.hi, t.nt)
     load_trajectory!(t.lower_storage_relax.x_set_traj, t.cv, t.cc, t.x_intv, t.cv_grad, t.cc_grad)
@@ -260,8 +268,8 @@ end
 function constraint_relax(t::DynamicExt, integrator, i)
     for j = 1:t.nt
         support_time = t.cons[i].support[j]
-        get(t.lo[j], integrator, Bound{Lower}(support_time))
-        get(t.hi[j], integrator, Bound{Upper}(support_time))
+        DBB.get(t.lo[j], integrator, DBB.Bound{Lower}(DBB.TimeIndex(i)))
+        DBB.get(t.hi[j], integrator, DBB.Bound{Upper}(DBB.TimeIndex(i)))
     end
     load_intervals!(t.x_intv, t.lo, t.hi, t.nt)
     for j = 1:t.nt
@@ -276,11 +284,13 @@ function EAGO.lower_problem!(t::DynamicExt, opt::EAGO.GlobalOptimizer)
     n = opt._current_node
     lvbs = n.lower_variable_bounds
     uvbs = n.upper_variable_bounds
+
     @__dot__ opt._current_xref = 0.5*(lvbs + uvbs)
     @__dot__ t.p_intv = Interval(lvbs, uvbs)
     @__dot__ t.lower_storage_interval.p_set = t.p_intv
     @__dot__ t.lower_storage_relax.p_set = MC{t.np,NS}(opt._current_xref, t.p_intv, 1:t.np)
-    relaxed_optimizer = opt.relaxed_optimizer
+
+    relaxed_optimizer = EAGO._relaxed_optimizer(opt)
     EAGO.update_relaxed_problem_box!(opt)
 
     feasible = true
@@ -288,7 +298,7 @@ function EAGO.lower_problem!(t::DynamicExt, opt::EAGO.GlobalOptimizer)
     for (i,cons) in enumerate(t.cons)
         integrator = cons.integrator
         load_integrator!(integrator, lvbs, uvbs, opt._current_xref)
-        relax!(integrator)
+        DBB.relax!(integrator)
         aff_flag = supports_affine(integrator)
         support_aff = support_aff || aff_flag
         if aff_flag
@@ -306,7 +316,7 @@ function EAGO.lower_problem!(t::DynamicExt, opt::EAGO.GlobalOptimizer)
         obj_integrator = t.obj.integrator
         if obj_integrator !== NoIntegrator()
             load_integrator!(obj_integrator, lvbs, uvbs, opt._current_xref)
-            relax!(obj_integrator)
+            DBB.relax!(obj_integrator)
             support_aff_obj = supports_affine(obj_integrator)
             support_aff = support_aff || support_aff_obj
             if support_aff
@@ -377,10 +387,10 @@ function evaluate_dynamics(::Val{NP}, t, param, p, integrator) where NP
     new_point = t.p_val != p
     if new_point
         DBB.setall!(integrator, DBB.ParameterValue(), p)
-        integrate!(integrator)
+        DBB.integrate!(integrator)
         for i = 1:t.nt
             support_time = t.obj.support[i]
-            get(t.x_val[i], integrator, DBB.Value(support_time))
+            DBB.get(t.x_val[i], integrator, DBB.Value(support_time))
             t.x_traj.v[i] .= t.x_val[i]
         end
         seeds = construct_seeds(Partials{NP,Float64})
@@ -457,10 +467,10 @@ function upper_problem_obj_only!(q::DynamicExt, opt::EAGO.GlobalOptimizer, lvbs,
     obj_integrator = t.obj.integrator
     @__dot__ t.p_val = 0.5*(lvbs + uvbs)
     if obj_integrator !== NoIntegrator()
-        integrate!(obj_integrator)
+        DBB.integrate!(obj_integrator)
         for i = 1:t.nt
             support_time = t.obj.support[i]
-            get(t.x_val[i], obj_integrator, DBB.Value(support_time))
+            DBB.get(t.x_val[i], obj_integrator, DBB.Value(support_time))
             t.x_traj.v[i] .= t.x_val[i]
         end
     end
@@ -552,5 +562,6 @@ EAGO.cut_condition(t::DynamicExt, p::EAGO.GlobalOptimizer) = false
 
 function EAGO.optimize_hook!(t::DynamicExt, m::EAGO.Optimizer)
     println("ran optimize hook dynamic ext") 
+    EAGO.initial_parse!(m)
     EAGO.optimize!(EAGO.MINCVX(), m)
 end

@@ -12,7 +12,6 @@ end
 # Defines pODEs problem
 x0(p) = [0.0; 0.0; 0.0; 0.4; 140.0]
 function RHS!(dx, x, p, t)
-
     T = 273.0
     K2 = 46.0*exp(6500.0/T - 18.0)
     K3 = 2.0*K2
@@ -21,7 +20,7 @@ function RHS!(dx, x, p, t)
     k5 = 0.0012
     cO2 = 0.002
 
-    dx[1] = k1*x[4]*x[5] -cO2*(p[1]+p[2])*x[1] + p[1]*x[3]/K2+p[2]*x[2]/K3-k5*x[1]*x[1]
+    dx[1] = k1*x[4]*x[5] -cO2*(p[1]+p[2])*x[1] + p[1]*x[3]/K2+p[2]*x[2]/K3-k5*x[1]^2
     dx[2] = p[2]*cO2*x[1] - (p[2]/K3 + p[3])*x[2]
     dx[3] = p[1]*cO2*x[1] - p[1]*x[3]/K2
     dx[4] = -k1s*x[4]*x[5]
@@ -31,7 +30,32 @@ end
 tspan = (0.0, 2.0)
 pL = [10.0;  10.0;  0.001]
 pU = [1200.0;  1200.0;  40.0]
-pode_problem = ODERelaxProb(RHS!, tspan, x0, pL, pU)
+
+function Jx_RHS!(out, x, p, t)
+    T = 273.0
+    K2 = 46.0*exp(6500.0/T - 18.0)
+    K3 = 2.0*K2
+    k1 = 53.0
+    k1s = k1*10^(-6)
+    k5 = 0.0012
+    cO2 = 0.002
+
+    out[1,1] = -cO2*(p[1]+p[2]) - 2*k5*x[1]
+    out[1,2] = p[2]/K3
+    out[1,3] = p[1]/K2
+    out[1,4] = k1*x[5]
+    out[1,5] = k1*x[4]
+    out[2,1] = p[2]*cO2
+    out[2,2] = -(p[2]/K3 + p[3])
+    out[3,1] = p[1]*cO2
+    out[3,3] = -p[1]/K2
+    out[4,4] = -k1s*x[5]
+    out[4,5] = -k1s*x[4]
+    out[5,4] = -k1*x[5]
+    out[5,5] = -k1*x[4]
+    nothing
+end
+pode_problem = ODERelaxProb(RHS!, tspan, x0, pL, pU; Jx! = Jx_RHS!)
 
 set!(pode_problem, SupportSet([i for i in 0.01:0.01:2.0]))
 
