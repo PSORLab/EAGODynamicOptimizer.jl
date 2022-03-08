@@ -43,8 +43,9 @@ function EAGO.presolve_global!(t::DynamicExt{T}, m::EAGO.GlobalOptimizer) where 
 
     # loads lower problem based on extension integrator
     integrator = m.ext.integrator
-    support_set = get(integrator, DBB.SupportSet())
+    support_set = DBB.get(integrator, DBB.SupportSet())
     nt = length(support_set.s)
+    @show nt
     ext_type = DynamicExt(integrator, np, nx, nt, zero(MC{np, NS}))
 
     load_check_support!(Val{np}(), ext_type, support_set, nt, nx, zero(MC{np, NS}))
@@ -187,11 +188,8 @@ end
 
 function objective_relax!(opt, relaxed_optimizer, t::DynamicExt, integrator)
 
-    @show t.nt
-    @show t.obj.support
     for i = 1:t.nt
         support_time = t.obj.support[i]
-        @show support_time
         DBB.get!(t.lo[i], integrator, DBB.Bound{Lower}(DBB.TimeIndex(i)))
         DBB.get!(t.hi[i], integrator, DBB.Bound{Upper}(DBB.TimeIndex(i)))
         DBB.get!(t.cv[i], integrator, DBB.Relaxation{Lower}(DBB.TimeIndex(i)))
@@ -207,6 +205,7 @@ function objective_relax!(opt, relaxed_optimizer, t::DynamicExt, integrator)
                                           t.lower_storage_relax.p_set)
     saf_temp = opt._working_problem._objective_saf
     saf_temp.constant = t.lower_storage_relax.obj_set.cv
+    @show saf_temp
     for i = 1:t.np
         coeff = @inbounds t.lower_storage_relax.obj_set.cv_grad[i]
         saf_temp.terms[i] = MOI.ScalarAffineTerm{Float64}(coeff, MOI.VariableIndex(i))
@@ -290,7 +289,7 @@ function EAGO.lower_problem!(t::DynamicExt, opt::EAGO.GlobalOptimizer)
     @__dot__ t.lower_storage_interval.p_set = t.p_intv
     @__dot__ t.lower_storage_relax.p_set = MC{t.np,NS}(opt._current_xref, t.p_intv, 1:t.np)
 
-    relaxed_optimizer = EAGO._relaxed_optimizer(opt)
+    d = EAGO._relaxed_optimizer(opt)
     EAGO.update_relaxed_problem_box!(opt)
 
     feasible = true
@@ -302,7 +301,7 @@ function EAGO.lower_problem!(t::DynamicExt, opt::EAGO.GlobalOptimizer)
         aff_flag = supports_affine(integrator)
         support_aff = support_aff || aff_flag
         if aff_flag
-            cval = constraint_relax(opt, relaxed_optimizer, t, integrator, i)
+            cval = constraint_relax(opt, d, t, integrator, i)
         else
             cval = constraint_relax(t, integrator, i)
         end
@@ -320,7 +319,7 @@ function EAGO.lower_problem!(t::DynamicExt, opt::EAGO.GlobalOptimizer)
             support_aff_obj = supports_affine(obj_integrator)
             support_aff = support_aff || support_aff_obj
             if support_aff
-                objective_relax!(opt, relaxed_optimizer, t, obj_integrator)
+                objective_relax!(opt, d, t, obj_integrator)
             else
                 objective_relax!(opt, t, obj_integrator)
             end
@@ -335,33 +334,42 @@ function EAGO.lower_problem!(t::DynamicExt, opt::EAGO.GlobalOptimizer)
         end
 
         if support_aff
-            MOI.optimize!(relaxed_optimizer)
-            opt._lower_termination_status = MOI.get(relaxed_optimizer, MOI.TerminationStatus())
-            opt._lower_result_status = MOI.get(relaxed_optimizer, MOI.PrimalStatus())
-            valid_flag, feasible_flag = EAGO.is_globally_optimal(opt._lower_termination_status, opt._lower_result_status)
-            if valid_flag
-                aff_obj = MOI.get(relaxed_optimizer, MOI.ObjectiveValue())
-                if aff_obj > lo(t.lower_storage_relax.obj_set)
-                    opt._lower_objective_value = MOI.get(relaxed_optimizer, MOI.ObjectiveValue())
-                    for i = 1:opt._working_problem._variable_count
-                        opt._lower_solution[i] = MOI.get(relaxed_optimizer, MOI.VariablePrimal(), opt._relaxed_variable_index[i])
-                    end
-                else
-                    opt._lower_objective_value = lo(t.lower_storage_relax.obj_set)
-                    opt._lower_solution = opt._current_xref
-                    opt._lower_feasibility = true
-                end
+            MOI.optimize!(d)
+            t_status = MOI.get(d, MOI.TerminationStatus())
+            @show t_status
+            p_status = MOI.get(d, MOI.PrimalStatus())
+            @show p_status
+            d_status = MOI.get(d, MOI.DualStatus())
+            @show d_status
+            opt._lower_termination_status = t_status
+            opt._lower_primal_status = p_status
+            opt._lower_dual_status = d_status
+            status = EAGO.relaxed_problem_status(t_status, p_status, d_status)
+            if status == EAGO.RRS_INFEASIBLE
+                opt._lower_feasibility  = false
+                opt._lower_objective_value = -Inf
+                return
             end
-        else
-            opt._lower_objective_value = lo(t.lower_storage_interval.obj_set)
-            opt._lower_solution = opt._current_xref
+        
+            # set dual values
+            EAGO.set_dual!(opt)
             opt._lower_feasibility = true
+            EAGO.store_lower_solution!(opt, d)
+            if status == EAGO.RRS_DUAL_FEASIBLE
+                opt._lower_objective_value = MOI.get(d, MOI.DualObjectiveValue())
+            end
         end
     else
         opt._lower_objective_value = -Inf
+        opt._lower_feasibility = false
     end
-    opt._lower_solution = opt._current_xref
-    opt._lower_feasibility = feasible
+
+    if support_aff
+        obj_intv = t.lower_storage_relax.obj_set.Intv
+    else
+        obj_intv = t.lower_storage_interval.obj_set
+    end
+    opt._lower_objective_value = max(opt._lower_objective_value, obj_intv.lo)
     return nothing
 end
 
@@ -458,9 +466,7 @@ function ∇cons_wrap(t::DynamicExt, i, p)
     return partials(cons_dual, 1)
 end
 
-function upper_problem_obj_only!(q::DynamicExt, opt::EAGO.GlobalOptimizer, lvbs, uvbs)
-    t = opt.ext_type
-
+function upper_problem_obj_only!(t::DynamicExt, opt::EAGO.GlobalOptimizer, lvbs, uvbs)
     # get all at particular points???
     DBB.set!(t.integrator, DBB.LocalSensitivityOn(), false)
 
@@ -486,8 +492,6 @@ function EAGO.upper_problem!(q::DynamicExt, opt::EAGO.GlobalOptimizer)
     n = opt._current_node
     lvbs = n.lower_variable_bounds
     uvbs = n.upper_variable_bounds
-    @show lvbs
-    @show uvbs
     isempty(q.cons) && return upper_problem_obj_only!(q, opt, lvbs, uvbs)
 
     np = q.np
@@ -496,7 +500,7 @@ function EAGO.upper_problem!(q::DynamicExt, opt::EAGO.GlobalOptimizer)
     set_optimizer_attribute(model, "print_level", 1)
     @variable(model, lvbs[i] <= p[i=1:q.np] <= uvbs[i])
 
-    DBB.set!(q.integrator, DBB.LocalSensitivityOn(), true)
+    DBB.set!(q.integrator, DBB.LocalSensitivityOn(), true) # TODO: FIX THIS...
 
     # define the objective
     if isone(q.np)

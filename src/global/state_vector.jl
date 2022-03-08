@@ -60,7 +60,7 @@ function load_trajectory!(d::Trajectory{MC{N,T}}, cv::Vector{Vector{Float64}},
         cvg = extract_static_vector(Val{N}, Val{d.nx}, cv_grad, i)
         ccg = extract_static_vector(Val{N}, Val{d.nx}, cc_grad, i)
         for j = 1:d.nx
-            d.v[i][j] = MC{N,T}.(cv[i][j], cc[i][j], intv[i][j], cvg, ccg, false)
+            d.v[i][j] = MC{N,T}(cv[i][j], cc[i][j], intv[i][j], cvg[j], ccg[j], false)
         end
     end
     return nothing
