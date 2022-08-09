@@ -24,11 +24,11 @@ function supports_affine(integrator)
     return b
 end
 
-function EAGO.presolve_global!(t::DynamicExt{T}, m::EAGO.GlobalOptimizer) where T
+function EAGO.presolve_global!(t::DynamicExt{T}, m::GlobalOptimizer) where T
 
 
     println("ran global presolve...")
-    EAGO.presolve_global!(EAGO.DefaultExt(), m)
+    EAGO.presolve_global!(DefaultExt(), m)
 
     # add storage for objective cut
     m._working_problem._objective_saf.terms = fill(MOI.ScalarAffineTerm{Float64}(0.0,
@@ -46,7 +46,7 @@ function EAGO.presolve_global!(t::DynamicExt{T}, m::EAGO.GlobalOptimizer) where 
     support_set = DBB.get(integrator, DBB.SupportSet())
     nt = length(support_set.s)
     @show nt
-    ext_type = DynamicExt(integrator, np, nx, nt, zero(MC{np, NS}))
+    ext_type = DynamicExt(integrator, np, nx, nt, zero(MC{np, NS})) #Makes a new DynamicExt? TODO
 
     load_check_support!(Val{np}(), ext_type, support_set, nt, nx, zero(MC{np, NS}))
     if last_obj !== nothing
@@ -78,7 +78,7 @@ function EAGO.presolve_global!(t::DynamicExt{T}, m::EAGO.GlobalOptimizer) where 
 
     vi = m._working_problem._variable_info
     @show vi
-    n = EAGO.NodeBB(EAGO.lower_bound.(vi), EAGO.upper_bound.(vi), EAGO.is_integer.(vi))
+    n = NodeBB(lower_bound.(vi), upper_bound.(vi), is_integer.(vi))
     m._current_node = n
 
     return nothing
@@ -92,7 +92,7 @@ function load_integrator!(integrator, lvbs, uvbs, xref)
     return nothing
 end
 
-function lower_bound_problem!(::Val{true}, t::DynamicExt, opt::EAGO.GlobalOptimizer)
+function lower_bound_problem!(::Val{true}, t::DynamicExt, opt::GlobalOptimizer)
 
     # reset box used to evaluate relaxation
     n = opt._current_node
@@ -100,7 +100,7 @@ function lower_bound_problem!(::Val{true}, t::DynamicExt, opt::EAGO.GlobalOptimi
     uvbs = n.upper_variable_bounds
     integrator = t.integrator
 
-    EAGO.update_relaxed_problem_box!(opt)
+    update_relaxed_problem_box!(opt)
 
     DBB.setall!(integrator, DBB.ParameterBound{Lower}(), lvbs)
     DBB.setall!(integrator, DBB.ParameterBound{Upper}(), uvbs)
@@ -217,7 +217,7 @@ function objective_relax!(opt, relaxed_optimizer, t::DynamicExt, integrator)
     return nothing
 end
 
-function objective_relax!(opt::EAGO.GlobalOptimizer, t::DynamicExt, integrator)
+function objective_relax!(opt::GlobalOptimizer, t::DynamicExt, integrator)
     for i = 1:t.nt
         support_time = t.obj.support[i]
         DBB.get(t.lo[i], integrator, DBB.Bound{Lower}(DBB.TimeIndex(i)))
@@ -233,7 +233,7 @@ function objective_relax!(opt::EAGO.GlobalOptimizer, t::DynamicExt, integrator)
     return nothing
 end
 
-function constraint_relax(opt::EAGO.GlobalOptimizer, relaxed_optimizer, t::DynamicExt, integrator, j)
+function constraint_relax(opt::GlobalOptimizer, relaxed_optimizer, t::DynamicExt, integrator, j)
     for i = 1:t.nt
         support_time = t.cons[j].support[i]
         DBB.get(t.lo[i], integrator, DBB.Bound{Lower}(DBB.TimeIndex(i)))
@@ -277,7 +277,7 @@ function constraint_relax(t::DynamicExt, integrator, i)
     return t.cons[i].f(t.lower_storage_interval.x_set_traj, t.lower_storage_interval.p_set).lo
 end
 
-function EAGO.lower_problem!(t::DynamicExt, opt::EAGO.GlobalOptimizer)
+function EAGO.lower_problem!(t::DynamicExt, opt::GlobalOptimizer)
     println("ran global lower problem...")
     # reset box used to evaluate relaxation
     n = opt._current_node
@@ -289,8 +289,8 @@ function EAGO.lower_problem!(t::DynamicExt, opt::EAGO.GlobalOptimizer)
     @__dot__ t.lower_storage_interval.p_set = t.p_intv
     @__dot__ t.lower_storage_relax.p_set = MC{t.np,NS}(opt._current_xref, t.p_intv, 1:t.np)
 
-    d = EAGO._relaxed_optimizer(opt)
-    EAGO.update_relaxed_problem_box!(opt)
+    d = _relaxed_optimizer(opt)
+    update_relaxed_problem_box!(opt)
 
     feasible = true
     support_aff = false
@@ -373,7 +373,7 @@ function EAGO.lower_problem!(t::DynamicExt, opt::EAGO.GlobalOptimizer)
     return nothing
 end
 
-function set_dual_trajectory!(::Val{NP}, t::DynamicExt, integrator) where NP
+function set_dual_trajectory!(::Val{NP}, t::AbstractDynamic, integrator) where NP
     DBB.getall!(t.value_temp, integrator, DBB.Value())
     DBB.getall!(t.gradient_temp, integrator, DBB.Gradient{Nominal}())
     temp = zeros(NP)
@@ -408,33 +408,33 @@ function evaluate_dynamics(::Val{NP}, t, param, p, integrator) where NP
     return new_point
 end
 
-function obj_wrap(::Val{NP}, t::DynamicExt, p) where NP
+function obj_wrap(::Val{NP}, t::AbstractDynamic, p) where NP
     new_eval = evaluate_dynamics(Val{NP}(),t, t.obj.params, p, t.obj.integrator)
     t.obj_val = t.obj.f(t.x_traj, t.p_val)
     return t.obj_val
 end
 
-function obj_wrap(t::DynamicExt, p)
+function obj_wrap(t::AbstractDynamic, p)
     t.scalar_temp[1] = p
     new_eval = evaluate_dynamics(Val{1}(),t, t.obj.params,t.scalar_temp, t.obj.integrator)
     t.obj_val = t.obj.f(t.x_traj, t.p_val)
     return t.obj_val
 end
 
-function cons_wrap(::Val{NP}, t::DynamicExt, i, p) where NP
+function cons_wrap(::Val{NP}, t::AbstractDynamic, i, p) where NP
     new_eval = evaluate_dynamics(Val{NP}(), t, t.cons[i].params, p, t.cons[i].integrator)
     t.cons_val[i] = t.cons[i].f(t.x_traj, t.p_val)
     return t.cons_val[i]
 end
 
-function cons_wrap(t::DynamicExt, i, p)
+function cons_wrap(t::AbstractDynamic, i, p)
     t.scalar_temp[1] = p
     new_eval = evaluate_dynamics(Val{1}(), t, t.cons[i].params, t.scalar_temp, t.cons[i].integrator)
     t.cons_val[i] = t.cons[i].f(t.x_traj, t.p_val)
     return t.cons_val[i][1]
 end
 
-function ∇obj_wrap!(::Val{NP}, t::DynamicExt, out, p) where NP
+function ∇obj_wrap!(::Val{NP}, t::AbstractDynamic, out, p) where NP
     new_eval = evaluate_dynamics(Val{NP}(),t, t.obj.params, p, t.obj.integrator)
     set_dual_trajectory!(Val{NP}(),t, t.obj.integrator)
     obj_dual = t.obj.f(t.upper_storage.x_set_traj, t.upper_storage.p_set)
@@ -442,7 +442,7 @@ function ∇obj_wrap!(::Val{NP}, t::DynamicExt, out, p) where NP
     return nothing
 end
 
-function ∇obj_wrap(t::DynamicExt, p)
+function ∇obj_wrap(t::AbstractDynamic, p)
     t.scalar_temp[1] = p
     new_eval = evaluate_dynamics(Val{1}(),t, t.obj.params, t.scalar_temp, t.obj.integrator)
     set_dual_trajectory!(Val{1}(),t, t.obj.integrator)
@@ -450,7 +450,7 @@ function ∇obj_wrap(t::DynamicExt, p)
     return partials(obj_dual, 1)
 end
 
-function ∇cons_wrap!(::Val{NP}, t::DynamicExt, out, i, p) where NP
+function ∇cons_wrap!(::Val{NP}, t::AbstractDynamic, out, i, p) where NP
     new_eval = evaluate_dynamics(Val{NP}(), t, t.cons[i].params, p, t.cons[i].integrator)
     set_dual_trajectory!(Val{NP}(),t, t.cons[i].integrator)
     cons_dual = t.cons[i].f(t.upper_storage.x_set_traj, t.upper_storage.p_set)
@@ -458,7 +458,7 @@ function ∇cons_wrap!(::Val{NP}, t::DynamicExt, out, i, p) where NP
     return nothing
 end
 
-function ∇cons_wrap(t::DynamicExt, i, p)
+function ∇cons_wrap(t::AbstractDynamic, i, p)
     t.scalar_temp[1] = p
     new_eval = evaluate_dynamics(Val{1}(), t, t.cons[i].params, t.scalar_temp, t.cons[i].integrator)
     set_dual_trajectory!(Val{1}(),t, t.cons[i].integrator)
@@ -466,7 +466,7 @@ function ∇cons_wrap(t::DynamicExt, i, p)
     return partials(cons_dual, 1)
 end
 
-function upper_problem_obj_only!(t::DynamicExt, opt::EAGO.GlobalOptimizer, lvbs, uvbs)
+function upper_problem_obj_only!(t::AbstractDynamic, opt::GlobalOptimizer, lvbs, uvbs)
     # get all at particular points???
     DBB.set!(t.integrator, DBB.LocalSensitivityOn(), false)
 
@@ -488,7 +488,7 @@ function upper_problem_obj_only!(t::DynamicExt, opt::EAGO.GlobalOptimizer, lvbs,
     return nothing
 end
 
-function EAGO.upper_problem!(q::DynamicExt, opt::EAGO.GlobalOptimizer)
+function EAGO.upper_problem!(q::AbstractDynamic, opt::GlobalOptimizer)
     n = opt._current_node
     lvbs = n.lower_variable_bounds
     uvbs = n.upper_variable_bounds
@@ -560,12 +560,12 @@ function EAGO.upper_problem!(q::DynamicExt, opt::EAGO.GlobalOptimizer)
     return nothing
 end
 
-EAGO.preprocess!(t::DynamicExt, p::EAGO.GlobalOptimizer) = (p._preprocess_feasibility = true;)
-EAGO.postprocess!(t::DynamicExt, p::EAGO.GlobalOptimizer) = (p._postprocess_feasibility = true;)
-EAGO.cut_condition(t::DynamicExt, p::EAGO.GlobalOptimizer) = false
+EAGO.preprocess!(t::AbstractDynamic, p::GlobalOptimizer) = (p._preprocess_feasibility = true;)
+EAGO.postprocess!(t::AbstractDynamic, p::GlobalOptimizer) = (p._postprocess_feasibility = true;)
+EAGO.cut_condition(t::AbstractDynamic, p::GlobalOptimizer) = false
 
-function EAGO.optimize_hook!(t::DynamicExt, m::EAGO.Optimizer)
+function EAGO.optimize_hook!(t::DynamicExt, m::Optimizer)
     println("ran optimize hook dynamic ext") 
-    EAGO.initial_parse!(m)
-    EAGO.optimize!(EAGO.MINCVX(), m)
+    initial_parse!(m)
+    optimize!(MINCVX(), m)
 end

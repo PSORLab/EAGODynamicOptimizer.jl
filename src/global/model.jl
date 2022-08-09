@@ -19,7 +19,7 @@ function EAGODynamicModel(ext::DynamicExt{T}, kwargs...) where T
     np = DBB.get(ext.integrator, DBB.ParameterNumber())
 
     # initialize model and variables
-    new_factory = () -> EAGO.Optimizer(SubSolvers(; t = ext))
+    new_factory = () -> Optimizer(SubSolvers(; t = ext))
     m  = Model(optimizer_with_attributes(new_factory, kwargs...))
     set_optimizer_attribute(m, "ext", ext)
     set_optimizer_attribute(m, "branch_variable", Bool[true for i in 1:np])

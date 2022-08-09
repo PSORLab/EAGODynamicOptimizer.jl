@@ -26,7 +26,14 @@ end
 
 const TAG = :DynamicTag
 
-mutable struct DynamicExt{S,T} <: EAGO.ExtensionType
+# Abstract type created to support EAGO-GPU, which is an extension that wants
+# to re-use some parts of EAGODynamicOptimizer. Instead of making DynamicExt
+# an extension, it's now a subtype of AbstractDynamic, so it'll perform the
+# same way as before, but some functions will work with both DynamicExt
+# and the new DynamicExtGPU.
+abstract type AbstractDynamic{S,T} <: ExtensionType end
+
+mutable struct DynamicExt{S,T} <: AbstractDynamic{S,T}
     integrator
     obj::Union{SupportedFunction,Nothing}
     cons::Vector{SupportedFunction}
@@ -108,7 +115,7 @@ function DynamicExt(integrator)
     return DynamicExt(integrator, np, nx, nt, zero(MC{np,NS}))
 end
 
-Base.eltype(::DynamicExt{T}) where T = T
+Base.eltype(::AbstractDynamic{T}) where T = T
 
 function add_supported_objective!(t::Model, obj)
     ext = get_optimizer_attribute(t, "ext")
@@ -154,7 +161,7 @@ function add_supported_constraint!(t::Model, cons, integrator)
     return nothing
 end
 
-function load_check_support!(::Val{NP}, t::DynamicExt, support_set::DBB.SupportSet,
+function load_check_support!(::Val{NP}, t::AbstractDynamic, support_set::DBB.SupportSet,
                              nt::Int, nx::Int, ::T) where {NP,T}
     for (i, tval) in enumerate(support_set.s)
         t.lower_storage_interval.x_set_traj.time_dict[tval] = i

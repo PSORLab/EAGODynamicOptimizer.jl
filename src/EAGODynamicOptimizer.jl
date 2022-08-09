@@ -14,22 +14,35 @@
 module EAGODynamicOptimizer
 
 using MathOptInterface, DocStringExtensions,
-      DynamicBoundsBase, JuMP, Reexport, Ipopt
+      DynamicBoundsBase, JuMP, Reexport, Ipopt,
+      ModelingToolkit, OrdinaryDiffEq
+
+using SourceCodeMcCormick
 
 using ForwardDiff: Dual, Partials, construct_seeds, partials
 
+using DynamicBoundspODEsIneq
+
 @reexport using EAGO
 
-import EAGO: preprocess!, postprocess!, lower_problem!,
-             upper_problem!, cut_condition, ExtensionType,
-             build_model, sip_llp!, sip_bnd!, set_tolerance!
+import EAGO: _ext, _relaxed_optimizer, _variable_num, branch_node!, 
+             build_model, convergence_check!, cut_condition, DefaultExt, 
+             ExtensionType, fathom!, FullVar, GlobalOptimizer, initial_parse!, 
+             is_integer, log_iteration!, lower_bound, lower_problem!, 
+             map_argmax, MINCVX, node_selection!, NodeBB, optimize_hook!, 
+             parse_global!, postprocess!, preprocess!, presolve_global!, 
+             presolve_global!, print_interation!, print_node!, print_preamble!, 
+             print_results!, select_branch_variable, set_global_lower_bound!, 
+             set_tolerance!, sip_bnd!, sip_llp!, unpack_global_solution!, 
+             update_relaxed_problem_box!, upper_bound, upper_problem!
 
+             
 import Base: getindex, setindex!
 
 const MOI = MathOptInterface
 const DBB = DynamicBoundsBase
 
-export DynamicExt, EAGODynamicModel, SIPDynamicExt,
+export DynamicExt, EAGODynamicModel, SIPDynamicExt, 
        add_supported_objective!, add_supported_constraint!
 
 include("global/state_vector.jl")
@@ -37,6 +50,5 @@ include("global/global_extension.jl")
 include("global/subroutines.jl")
 include("global/model.jl")
 include("semiinfinite/sip_extension.jl")
-
 
 end # module

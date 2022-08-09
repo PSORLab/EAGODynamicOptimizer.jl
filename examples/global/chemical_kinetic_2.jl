@@ -1,7 +1,8 @@
 using JuMP, EAGODynamicOptimizer, DynamicBoundsBase,
       DynamicBoundspODEsIneq, DynamicBoundspODEsDiscrete
 
-using DataFrames, CSV
+using DataFrames
+using CSV
 
 data = CSV.read(joinpath(@__DIR__,"kinetic_intensity_data.csv"), DataFrame)
 data_dict = Dict{Float64,Float64}()
@@ -95,6 +96,12 @@ intensity(xA,xB,xD) = xA + (2/21)*xB + (2/21)*xD
 # Defines the objective: integrates the ODEs and calculates SSE
 function objective_data(x, p, data_dict)
     SSE = zero(typeof(p[1]))
+    println("inside")
+    println(typeof(x))
+    for thing in x
+        println(typeof(thing))
+        println(thing)
+    end
     for t = 0.01:0.01:2.0
         val = data_dict[t]
         SSE += (intensity(x[1, t], x[2, t], x[3, t]) - val)^2
@@ -108,6 +115,7 @@ add_supported_objective!(m, objective)
 println(" ")
 println("optimize start")
 optimize!(m)
+println("optimized?")
 bm = backend(m)
 @show typeof(bm)
 bm_m = bm.optimizer.model
